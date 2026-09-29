@@ -18,6 +18,33 @@ import {
 export interface FoldState {
   progress: number;
   open: number;
+  /** Unfold panels in sequence (outermost flaps first) instead of all at once. */
+  stagger?: boolean;
+}
+
+/**
+ * Single "open amount" used by the viewer's Open/Close control:
+ * 0 = closed box, then lids/tucks open, then the box unfolds panel by panel, 1 = flat dieline.
+ */
+export function foldFromOpenAmount(dl: Dieline, t: number): FoldState {
+  const a = dl.hasOpenState ? 0.3 : 0;
+  const tt = Math.max(0, Math.min(1, t));
+  const open = a ? Math.min(1, tt / a) : 0;
+  const progress = 1 - Math.max(0, (tt - a) / (1 - a));
+  return { progress, open, stagger: true };
+}
+
+const smooth = (x: number) => x * x * (3 - 2 * x);
+
+/** Per-panel fold amount when staggered: deepest (outermost) panels unfold first. */
+function panelProgress(p: number, depth: number, maxDepth: number): number {
+  if (maxDepth <= 1) return smooth(p);
+  const u = 1 - p; // unfold amount
+  const k = maxDepth - depth; // 0 for the outermost flaps
+  const w = Math.min(1, 2.2 / maxDepth);
+  const start = (k / (maxDepth - 1)) * (1 - w);
+  const local = Math.max(0, Math.min(1, (u - start) / w));
+  return 1 - smooth(local);
 }
 
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
@@ -40,6 +67,7 @@ function placementMatrix(pl: Placement, rootTL: Pt): Mat4 {
 export function panelTransforms(dl: Dieline, s: FoldState): Record<string, Mat4> {
   const out: Record<string, Mat4> = {};
   const p = Math.max(0, Math.min(1, s.progress));
+  const maxDepth = Math.max(1, ...dl.panels.map((q) => q.treeDepth));
   for (const piece of dl.pieces) {
     const root = dl.byId[piece.root];
     const tl: Pt = [root.frame.x, root.frame.y];
@@ -64,7 +92,8 @@ export function panelTransforms(dl: Dieline, s: FoldState): Record<string, Mat4>
         const h = flat3(panel.hinge[0]);
         const n: Vec3 = [panel.outward[0], -panel.outward[1], 0];
         const axis: Vec3 = [-n[1], n[0], 0];
-        const angle = lerp(panel.fold, panel.openFold, s.open) * p;
+        const pp = s.stagger ? panelProgress(p, panel.treeDepth, maxDepth) : p;
+        const angle = lerp(panel.fold, panel.openFold, s.open) * pp;
         m = multiply(
           parentM,
           multiply(multiply(translation(h[0], h[1], h[2]), axisRotation(axis, angle)), translation(-h[0], -h[1], -h[2])),

@@ -185,9 +185,32 @@ a.btn.primary { color: var(--brand-ink); }
 .preview-toolbar > * { pointer-events: auto; }
 .preview-toolbar .seg { background: rgba(255, 255, 255, 0.85); backdrop-filter: blur(6px); box-shadow: var(--shadow); margin: 0; }
 .preview-toolbar .icon-btn { background: rgba(255, 255, 255, 0.85); box-shadow: var(--shadow); }
-.preview-views { position: absolute; left: 10px; right: 10px; bottom: 10px; display: flex; gap: 4px; flex-wrap: wrap; justify-content: center; }
+.preview-views { position: absolute; left: 10px; right: 10px; bottom: 62px; display: flex; gap: 4px; flex-wrap: wrap; justify-content: center; }
 .preview-views button { border: 0; background: rgba(255, 255, 255, 0.85); backdrop-filter: blur(6px); box-shadow: var(--shadow); border-radius: 7px; padding: 4px 9px; font-size: 12px; font-weight: 600; }
 .preview-views button:hover:not(:disabled) { background: #fff; }
+
+/* Open / close control */
+.fold-bar {
+  position: absolute; left: 10px; right: 10px; bottom: 10px; display: flex; align-items: center; gap: 10px;
+  background: rgba(255, 255, 255, 0.92); backdrop-filter: blur(8px); border-radius: 12px; box-shadow: var(--shadow); padding: 6px 12px 6px 6px;
+}
+.fold-play {
+  display: inline-flex; align-items: center; gap: 7px; height: 34px; padding: 0 14px 0 12px; border: 0; border-radius: 9px;
+  background: var(--brand); color: var(--brand-ink); font-weight: 700; min-width: 92px; justify-content: center;
+}
+.fold-play span { font-size: 11px; }
+.fold-play:hover { background: #c2410c; }
+.fold-slider { flex: 1; display: flex; align-items: center; gap: 8px; min-width: 0; }
+.fold-end { font-size: 11px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+.fold-slider input { flex: 1; min-width: 60px; -webkit-appearance: none; appearance: none; height: 6px; border-radius: 99px; background: linear-gradient(to right, var(--brand) var(--fill, 0%), #e4e7ec var(--fill, 0%)); cursor: pointer; }
+.fold-slider input::-webkit-slider-thumb { -webkit-appearance: none; width: 18px; height: 18px; border-radius: 50%; background: #fff; border: 2px solid var(--brand); box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25); }
+.fold-slider input::-moz-range-thumb { width: 16px; height: 16px; border-radius: 50%; background: #fff; border: 2px solid var(--brand); }
+.fold-stage { font-size: 12px; font-weight: 700; min-width: 76px; text-align: right; font-variant-numeric: tabular-nums; }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+@media (max-width: 480px) {
+  .fold-end { display: none; }
+  .fold-stage { min-width: 0; }
+}
 
 /* ---------------------------------------------------------------- inspector */
 .inspector { flex: 0 1 auto; max-height: 45%; overflow-y: auto; padding: 14px 16px 20px; }

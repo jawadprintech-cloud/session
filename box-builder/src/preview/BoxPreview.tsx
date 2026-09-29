@@ -5,12 +5,11 @@ import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment
 import type { ResolvedCatalog } from "../../shared/catalog";
 import type { Design } from "../../shared/design";
 import type { Dieline, DielinePanel } from "../../shared/dieline";
-import { deformPoint, flat3, foldedBounds, meshMatrix, panelTransforms, type FoldState } from "../../shared/fold";
+import { deformPoint, flat3, foldFromOpenAmount, foldedBounds, meshMatrix, panelTransforms, type FoldState } from "../../shared/fold";
 import { applyPoint, type Vec3 } from "../../shared/mat4";
 import { finishById, renderDesign, type RenderSources } from "../render/renderDesign";
 
-export type ViewName = "front" | "back" | "left" | "right" | "top" | "bottom" | "hero" | "heroBack";
-export type FoldMode = "closed" | "open" | "flat";
+export type ViewName = "front" | "back" | "left" | "right" | "top" | "bottom" | "hero" | "heroBack" | "flat";
 
 export interface BoxPreviewHandle {
   /** Render still images of the closed box from the given views. */
@@ -36,6 +35,7 @@ const VIEW_DIRS: Record<ViewName, Vec3> = {
   bottom: [0, -1, 0.02],
   hero: [0.85, 0.65, 1.25],
   heroBack: [-0.9, 0.55, -1.2],
+  flat: [0, 0, 1],
 };
 
 const TEX_MAX = 2048;
@@ -120,7 +120,9 @@ function shadowTexture() {
 
 export const BoxPreview = forwardRef<BoxPreviewHandle, Props>(function BoxPreview(props, ref) {
   const hostRef = useRef<HTMLDivElement>(null);
-  const [mode, setMode] = useState<FoldMode>("closed");
+  // 0 = closed, lid opens first, then panels unfold one by one, 1 = flat dieline.
+  const [openAmt, setOpenAmt] = useState(0);
+  const [playing, setPlaying] = useState(false);
   const [spin, setSpin] = useState(false);
   const [failed, setFailed] = useState(false);
   const propsRef = useRef(props);
@@ -142,7 +144,12 @@ export const BoxPreview = forwardRef<BoxPreviewHandle, Props>(function BoxPrevie
     finishTex: THREE.CanvasTexture | null;
     meshes: PanelMesh[];
     fold: FoldState;
-    target: FoldState;
+    t: number;
+    tTarget: number;
+    play: boolean;
+    dClosed: number;
+    dFlat: number;
+    onT: (t: number, done: boolean) => void;
     dirty: boolean;
     texDirty: boolean;
     camAnim: { from: THREE.Vector3; to: THREE.Vector3; t0: number } | null;
@@ -205,7 +212,12 @@ export const BoxPreview = forwardRef<BoxPreviewHandle, Props>(function BoxPrevie
       finishTex: null,
       meshes: [],
       fold: { progress: 1, open: 0 },
-      target: { progress: 1, open: 0 },
+      t: 0,
+      tTarget: 0,
+      play: false,
+      dClosed: 600,
+      dFlat: 900,
+      onT: () => {},
       dirty: true,
       texDirty: true,
       camAnim: null,
@@ -247,17 +259,25 @@ export const BoxPreview = forwardRef<BoxPreviewHandle, Props>(function BoxPrevie
       e.raf = requestAnimationFrame(loop);
       const dt = Math.min(0.05, (now - last) / 1000);
       last = now;
-      // Fold animation.
-      const k = 1 - Math.pow(0.0015, dt);
-      let moved = false;
-      for (const key of ["progress", "open"] as const) {
-        const d = e.target[key] - e.fold[key];
-        if (Math.abs(d) > 1e-4) {
-          e.fold[key] += Math.abs(d) < 0.002 ? d : d * k;
-          moved = true;
+      // Open/close animation: constant speed when playing, quick follow when scrubbing.
+      const d = e.tTarget - e.t;
+      if (Math.abs(d) > 1e-4) {
+        const prevUnfold = unfoldOf(e.t);
+        if (e.play) e.t += Math.sign(d) * Math.min(Math.abs(d), dt / 2.8);
+        else e.t += Math.abs(d) < 0.002 ? d : d * (1 - Math.pow(0.0005, dt));
+        e.fold = foldFromOpenAmount(e.dieline!, e.t);
+        bake();
+        // Pull the camera back as the box unfolds so the whole sheet stays in view.
+        if (!e.camAnim) {
+          const u0 = prevUnfold, u1 = unfoldOf(e.t);
+          const want = (u: number) => e.dClosed + (e.dFlat - e.dClosed) * u;
+          const len = camera.position.length() * (want(u1) / want(u0));
+          camera.position.setLength(Math.max(controls.minDistance, Math.min(controls.maxDistance, len)));
         }
+        const done = Math.abs(e.tTarget - e.t) <= 1e-4;
+        if (done) e.play = false;
+        e.onT(e.t, done);
       }
-      if (moved) bake();
       if (e.texDirty) updateTextures();
       if (e.camAnim) {
         const t = Math.min(1, (now - e.camAnim.t0) / 550);
@@ -291,6 +311,14 @@ export const BoxPreview = forwardRef<BoxPreviewHandle, Props>(function BoxPrevie
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  /** How far the box has unfolded (0 while only the lid opens). */
+  function unfoldOf(t: number) {
+    const e = eng.current;
+    const a = e?.dieline?.hasOpenState ? 0.3 : 0;
+    const u = Math.max(0, (t - a) / (1 - a));
+    return u * u * (3 - 2 * u);
+  }
 
   // ---------------------------------------------------------------- geometry
   function bake() {
@@ -389,6 +417,7 @@ export const BoxPreview = forwardRef<BoxPreviewHandle, Props>(function BoxPrevie
     });
     const prev = e.dieline;
     e.dieline = dl;
+    e.fold = foldFromOpenAmount(dl, e.t);
     e.texDirty = true;
     bake();
     // Fit the camera when the style changes or the size changes a lot.
@@ -396,6 +425,8 @@ export const BoxPreview = forwardRef<BoxPreviewHandle, Props>(function BoxPrevie
     const open = dl.hasOpenState ? foldedBounds(dl, { progress: 1, open: 1 }) : closed;
     const radius = Math.max(Math.hypot(...closed.size), Math.hypot(...open.size) * 0.85) / 2;
     const dist = fitDistance(radius, e.camera) * 1.05;
+    e.dClosed = dist;
+    e.dFlat = fitDistance(Math.hypot(dl.width, dl.height) / 2, e.camera) * 0.9;
     e.controls.minDistance = radius * 1.2;
     e.controls.maxDistance = Math.max(dl.width, dl.height) * 3 + dist;
     if (!prev || prev.templateId !== dl.templateId || Math.abs(radius - e.radius) / e.radius > 0.25) {
@@ -412,11 +443,24 @@ export const BoxPreview = forwardRef<BoxPreviewHandle, Props>(function BoxPrevie
     if (eng.current) eng.current.texDirty = true;
   }, [props.design, props.version, props.catalog]);
 
+  // Keep the slider in sync with the animation (React state only; the loop owns the geometry).
   useEffect(() => {
     const e = eng.current;
     if (!e) return;
-    e.target = mode === "flat" ? { progress: 0, open: 0 } : mode === "open" ? { progress: 1, open: 1 } : { progress: 1, open: 0 };
-  }, [mode]);
+    let last = 0;
+    e.onT = (t, done) => {
+      const now = performance.now();
+      if (done || now - last > 30) {
+        last = now;
+        setOpenAmt(t);
+      }
+      if (done) {
+        setPlaying(false);
+        if (t >= 0.999) goTo("flat");
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     if (eng.current) eng.current.controls.autoRotate = spin;
@@ -424,9 +468,8 @@ export const BoxPreview = forwardRef<BoxPreviewHandle, Props>(function BoxPrevie
 
   const viewDistance = () => {
     const e = eng.current!;
-    const flat = e.target.progress < 0.5 && e.dieline;
-    const r = flat ? Math.hypot(e.dieline!.width, e.dieline!.height) / 2 : e.radius;
-    return fitDistance(r, e.camera) * (flat ? 0.9 : 1.05);
+    const u = unfoldOf(e.tTarget);
+    return e.dClosed + (e.dFlat - e.dClosed) * u;
   };
 
   const goTo = (v: ViewName) => {
@@ -437,20 +480,34 @@ export const BoxPreview = forwardRef<BoxPreviewHandle, Props>(function BoxPrevie
     e.controls.target.set(0, 0, 0);
   };
 
-  const setFold = (m: FoldMode) => {
-    setMode(m);
-    if (m === "flat") {
-      setSpin(false);
-      window.setTimeout(() => goTo("front"), 50);
-    } else if (mode === "flat") window.setTimeout(() => goTo("hero"), 50);
+  /** Animate to an open amount (0 closed … 1 flat). */
+  const playTo = (t: number) => {
+    const e = eng.current;
+    if (!e) return;
+    e.tTarget = t;
+    e.play = true;
+    setPlaying(true);
+    setSpin(false);
+    if (t < e.t && e.t > 0.9) goTo("hero");
   };
+  const scrub = (t: number) => {
+    const e = eng.current;
+    if (!e) return;
+    e.tTarget = t;
+    e.play = false;
+    setPlaying(false);
+    setOpenAmt(t);
+  };
+  const lidEnd = props.dieline.hasOpenState ? 0.3 : 0;
+  const stage = openAmt < 0.01 ? "Closed" : lidEnd && openAmt <= lidEnd + 0.01 ? "Lid open" : openAmt > 0.99 ? "Flat dieline" : "Unfolding";
+  const toggle = () => (playing ? scrub(openAmt) : playTo(openAmt > 0.5 ? 0 : 1));
 
   useImperativeHandle(ref, () => ({
     capture(views, width, height) {
       const e = eng.current;
       if (!e) return [];
       if (e.texDirty) updateTextures();
-      const saved = { fold: { ...e.fold }, pos: e.camera.position.clone(), aspect: e.camera.aspect, size: e.renderer.getSize(new THREE.Vector2()), pr: e.renderer.getPixelRatio() };
+      const saved = { pos: e.camera.position.clone(), aspect: e.camera.aspect, size: e.renderer.getSize(new THREE.Vector2()), pr: e.renderer.getPixelRatio() };
       e.fold = { progress: 1, open: 0 };
       bake();
       e.renderer.setPixelRatio(1);
@@ -469,7 +526,7 @@ export const BoxPreview = forwardRef<BoxPreviewHandle, Props>(function BoxPrevie
       e.camera.aspect = saved.aspect;
       e.camera.updateProjectionMatrix();
       e.camera.position.copy(saved.pos);
-      e.fold = saved.fold;
+      e.fold = foldFromOpenAmount(e.dieline!, e.t);
       bake();
       return out;
     },
@@ -493,12 +550,12 @@ export const BoxPreview = forwardRef<BoxPreviewHandle, Props>(function BoxPrevie
         </div>
       )}
       <div className="preview-toolbar">
-        <div className="seg" role="group" aria-label="Fold state">
-          <button className={mode === "closed" ? "on" : ""} onClick={() => setFold("closed")}>Closed</button>
+        <div className="seg" role="group" aria-label="Jump to">
+          <button className={openAmt < 0.01 ? "on" : ""} onClick={() => playTo(0)}>Closed</button>
           {props.dieline.hasOpenState && (
-            <button className={mode === "open" ? "on" : ""} onClick={() => setFold("open")}>Open</button>
+            <button className={Math.abs(openAmt - lidEnd) < 0.01 ? "on" : ""} onClick={() => playTo(lidEnd)}>Lid open</button>
           )}
-          <button className={mode === "flat" ? "on" : ""} onClick={() => setFold("flat")}>Flat</button>
+          <button className={openAmt > 0.99 ? "on" : ""} onClick={() => playTo(1)}>Flat</button>
         </div>
         <button className={`icon-btn ${spin ? "on" : ""}`} onClick={() => setSpin((s) => !s)} title="Auto-rotate 360°" aria-pressed={spin}>
           ⟳
@@ -506,11 +563,29 @@ export const BoxPreview = forwardRef<BoxPreviewHandle, Props>(function BoxPrevie
       </div>
       <div className="preview-views" role="group" aria-label="Camera views">
         {views.map(([v, label]) => (
-          <button key={v} onClick={() => goTo(v)} disabled={mode === "flat"}>
+          <button key={v} onClick={() => goTo(v)}>
             {label}
           </button>
         ))}
         <button onClick={() => goTo("hero")}>3/4</button>
+      </div>
+      <div className="fold-bar">
+        <button className="fold-play" onClick={toggle} aria-label={playing ? "Pause" : openAmt > 0.5 ? "Close box" : "Open box"}>
+          <span aria-hidden>{playing ? "❚❚" : openAmt > 0.5 ? "◀" : "▶"}</span>
+          {playing ? "Pause" : openAmt > 0.5 ? "Close" : "Open"}
+        </button>
+        <label className="fold-slider">
+          <span className="sr-only">Open amount</span>
+          <input
+            type="range"
+            min={0}
+            max={1000}
+            value={Math.round(openAmt * 1000)}
+            onChange={(ev) => scrub(Number(ev.target.value) / 1000)}
+            style={{ ["--fill" as string]: `${openAmt * 100}%` }}
+          />
+        </label>
+        <span className="fold-stage">{stage}</span>
       </div>
     </div>
   );
