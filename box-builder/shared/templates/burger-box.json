@@ -1,0 +1,44 @@
+{
+  "schema": 1,
+  "id": "burger-box",
+  "name": "Burger Box",
+  "description": "Clamshell food box: base tray and lid joined along the back hinge.",
+  "dimensions": [
+    { "key": "L", "label": "Length", "min": 60, "max": 400, "default": 150 },
+    { "key": "W", "label": "Width", "min": 60, "max": 400, "default": 150 },
+    { "key": "H", "label": "Height", "min": 40, "max": 250, "default": 90, "help": "Closed height (base + lid)" }
+  ],
+  "vars": {
+    "hb": "H * 0.45",
+    "hl": "H - hb",
+    "tab": "min(12, hb * 0.8)",
+    "ltab": "min(12, hl * 0.8)"
+  },
+  "pieces": [{ "id": "clamshell", "label": "Clamshell", "root": "front" }],
+  "panels": [
+    { "id": "front", "label": "Base Front", "face": "front", "w": "L", "h": "hb" },
+    { "id": "bottom", "label": "Bottom", "face": "bottom", "parent": "front", "edge": "bottom", "depth": "W" },
+    { "id": "back", "label": "Base Back", "face": "back", "parent": "bottom", "edge": "bottom", "depth": "hb" },
+    { "id": "left", "label": "Base Left", "face": "left", "parent": "bottom", "edge": "left", "depth": "hb" },
+    { "id": "right", "label": "Base Right", "face": "right", "parent": "bottom", "edge": "right", "depth": "hb" },
+    { "id": "tab-fl", "label": "Glue Tab", "kind": "glue", "parent": "front", "edge": "left", "depth": "tab", "shape": { "inset": [2, "tab * 0.4"] }, "layer": 1 },
+    { "id": "tab-fr", "label": "Glue Tab", "kind": "glue", "parent": "front", "edge": "right", "depth": "tab", "shape": { "inset": [2, "tab * 0.4"] }, "layer": 1 },
+    { "id": "tab-bl", "label": "Glue Tab", "kind": "glue", "parent": "back", "edge": "left", "depth": "tab", "shape": { "inset": ["tab * 0.4", 2] }, "layer": 1 },
+    { "id": "tab-br", "label": "Glue Tab", "kind": "glue", "parent": "back", "edge": "right", "depth": "tab", "shape": { "inset": ["tab * 0.4", 2] }, "layer": 1 },
+    { "id": "lid-back", "label": "Lid Back", "parent": "back", "edge": "bottom", "depth": "hl", "fold": 0, "openFold": -115 },
+    { "id": "top", "label": "Lid Top", "face": "top", "parent": "lid-back", "edge": "bottom", "depth": "W" },
+    { "id": "lid-front", "label": "Lid Front", "parent": "top", "edge": "bottom", "depth": "hl" },
+    { "id": "lid-left", "label": "Lid Left", "parent": "top", "edge": "left", "depth": "hl" },
+    { "id": "lid-right", "label": "Lid Right", "parent": "top", "edge": "right", "depth": "hl" },
+    { "id": "ltab-bl", "label": "Glue Tab", "kind": "glue", "parent": "lid-back", "edge": "left", "depth": "ltab", "shape": { "inset": [2, "ltab * 0.4"] }, "layer": 1 },
+    { "id": "ltab-br", "label": "Glue Tab", "kind": "glue", "parent": "lid-back", "edge": "right", "depth": "ltab", "shape": { "inset": [2, "ltab * 0.4"] }, "layer": 1 },
+    { "id": "ltab-fl", "label": "Glue Tab", "kind": "glue", "parent": "lid-front", "edge": "left", "depth": "ltab", "shape": { "inset": ["ltab * 0.4", 2] }, "layer": 1 },
+    { "id": "ltab-fr", "label": "Glue Tab", "kind": "glue", "parent": "lid-front", "edge": "right", "depth": "ltab", "shape": { "inset": ["ltab * 0.4", 2] }, "layer": 1 }
+  ],
+  "standardSizes": [
+    { "id": "burger-s", "label": "Small – 110 × 110 × 70 mm", "dims": { "L": 110, "W": 110, "H": 70 } },
+    { "id": "burger-m", "label": "Regular – 150 × 150 × 90 mm", "dims": { "L": 150, "W": 150, "H": 90 } },
+    { "id": "burger-l", "label": "Large – 180 × 180 × 100 mm", "dims": { "L": 180, "W": 180, "H": 100 } },
+    { "id": "burger-meal", "label": "Meal – 230 × 180 × 90 mm", "dims": { "L": 230, "W": 180, "H": 90 } }
+  ]
+}
