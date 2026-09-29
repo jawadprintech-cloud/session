@@ -40,6 +40,31 @@ const VIEW_DIRS: Record<ViewName, Vec3> = {
 
 const TEX_MAX = 2048;
 
+/** Scale diffuse and specular image-based lighting independently. */
+function iblPatch(diffuse: number, specular: number, coat: number) {
+  return (shader: { uniforms: Record<string, { value: unknown }>; fragmentShader: string }) => {
+    shader.uniforms.uIblDiffuse = { value: diffuse };
+    shader.uniforms.uIblSpecular = { value: specular };
+    shader.uniforms.uIblCoat = { value: coat };
+    shader.fragmentShader =
+      "uniform float uIblDiffuse;\nuniform float uIblSpecular;\nuniform float uIblCoat;\n" +
+      shader.fragmentShader.replace(
+        "#include <lights_fragment_maps>",
+        `#include <lights_fragment_maps>
+        iblIrradiance *= uIblDiffuse;
+        // Metallic areas (foil) reflect much more strongly than print, as real foil does.
+        #ifdef USE_METALNESSMAP
+          radiance *= mix(uIblSpecular, uIblSpecular * 2.2, metalnessFactor);
+        #else
+          radiance *= uIblSpecular;
+        #endif
+        #ifdef USE_CLEARCOAT
+          clearcoatRadiance *= uIblCoat;
+        #endif`,
+      );
+  };
+}
+
 /** Camera distance that fits a sphere of `radius` in both the vertical and horizontal field of view. */
 function fitDistance(radius: number, cam: THREE.PerspectiveCamera, aspect = cam.aspect): number {
   const v = (cam.fov * Math.PI) / 180;
@@ -128,6 +153,7 @@ export const BoxPreview = forwardRef<BoxPreviewHandle, Props>(function BoxPrevie
   const [playing, setPlaying] = useState(false);
   const [spin, setSpin] = useState(false);
   const [failed, setFailed] = useState(false);
+  const [ready, setReady] = useState(false);
   const edgeMat = useRef<THREE.LineBasicMaterial | null>(null);
   const propsRef = useRef(props);
   propsRef.current = props;
@@ -144,6 +170,8 @@ export const BoxPreview = forwardRef<BoxPreviewHandle, Props>(function BoxPrevie
     innerMat: THREE.MeshStandardMaterial;
     colorCanvas: HTMLCanvasElement;
     finishCanvas: HTMLCanvasElement;
+    coatCanvas: HTMLCanvasElement;
+    coatTex: THREE.CanvasTexture | null;
     colorTex: THREE.CanvasTexture | null;
     finishTex: THREE.CanvasTexture | null;
     meshes: PanelMesh[];
@@ -159,6 +187,9 @@ export const BoxPreview = forwardRef<BoxPreviewHandle, Props>(function BoxPrevie
     camAnim: { from: THREE.Vector3; to: THREE.Vector3; t0: number } | null;
     radius: number;
     raf: number;
+    /** Shaders compiled; nothing is drawn before this so the page never freezes on a half-built frame. */
+    ready: boolean;
+    compiling: boolean;
     dieline: Dieline | null;
   } | null>(null);
 
@@ -179,9 +210,12 @@ export const BoxPreview = forwardRef<BoxPreviewHandle, Props>(function BoxPrevie
     host.appendChild(renderer.domElement);
     const scene = new THREE.Scene();
     const pmrem = new THREE.PMREMGenerator(renderer);
-    scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+    // A small environment map is plenty for soft product lighting and keeps start-up fast.
+    scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04, 0.1, 100, { size: 128 }).texture;
     // Studio lighting: moderate ambient + key + fill so each face of a white box gets its own shade.
-    scene.environmentIntensity = 0.5;
+    // Diffuse and reflected environment light are scaled separately in the shaders (see iblPatch),
+    // so reflections can be strong enough for foil and gloss without washing out white board.
+    scene.environmentIntensity = 1;
     const fill = new THREE.DirectionalLight(0xdfe6f2, 0.45);
     fill.position.set(-500, 150, 200);
     scene.add(fill);
@@ -206,8 +240,17 @@ export const BoxPreview = forwardRef<BoxPreviewHandle, Props>(function BoxPrevie
     scene.add(shadow);
     // Faces are pushed back slightly so the edge outlines always draw on top.
     const offset = { polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 };
-    const outerMat = new THREE.MeshPhysicalMaterial({ roughness: 1, metalness: 1, side: THREE.FrontSide, ...offset });
+    const outerMat = new THREE.MeshPhysicalMaterial({
+      roughness: 1,
+      metalness: 1,
+      side: THREE.FrontSide,
+      clearcoat: 1,
+      clearcoatRoughness: 0.05,
+      ...offset,
+    });
+    outerMat.onBeforeCompile = iblPatch(0.5, 1.6, 0.85);
     const innerMat = new THREE.MeshStandardMaterial({ roughness: 0.95, metalness: 0, side: THREE.BackSide, ...offset });
+    innerMat.onBeforeCompile = iblPatch(0.5, 0.5, 0.5);
     edgeMat.current = new THREE.LineBasicMaterial({ color: 0x1b2230, transparent: true, opacity: 0.28 });
     eng.current = {
       renderer,
@@ -220,6 +263,8 @@ export const BoxPreview = forwardRef<BoxPreviewHandle, Props>(function BoxPrevie
       innerMat,
       colorCanvas: document.createElement("canvas"),
       finishCanvas: document.createElement("canvas"),
+      coatCanvas: document.createElement("canvas"),
+      coatTex: null,
       colorTex: null,
       finishTex: null,
       meshes: [],
@@ -235,6 +280,8 @@ export const BoxPreview = forwardRef<BoxPreviewHandle, Props>(function BoxPrevie
       camAnim: null,
       radius: 300,
       raf: 0,
+      ready: false,
+      compiling: false,
       dieline: null,
     };
     const e = eng.current;
@@ -245,6 +292,13 @@ export const BoxPreview = forwardRef<BoxPreviewHandle, Props>(function BoxPrevie
       renderer.setSize(w, h);
       camera.aspect = w / h;
       camera.updateProjectionMatrix();
+      if (e.dieline) {
+        // Keep the whole box in frame for the new shape (never zooms in on the user).
+        e.dClosed = fitDistance(e.radius, camera) * 1.05;
+        e.dFlat = fitDistance(Math.hypot(e.dieline.width, e.dieline.height) / 2, camera) * 0.9;
+        const want = e.dClosed + (e.dFlat - e.dClosed) * unfoldOf(e.t);
+        if (camera.position.length() < want * 0.98) camera.position.setLength(want);
+      }
       e.dirty = true;
     };
     const ro = new ResizeObserver(resize);
@@ -269,7 +323,8 @@ export const BoxPreview = forwardRef<BoxPreviewHandle, Props>(function BoxPrevie
     let last = performance.now();
     const loop = (now: number) => {
       e.raf = requestAnimationFrame(loop);
-      const dt = Math.min(0.05, (now - last) / 1000);
+      // Real elapsed time (capped) so animations take the same time on slow devices.
+      const dt = Math.min(0.3, (now - last) / 1000);
       last = now;
       // Open/close animation: constant speed when playing, quick follow when scrubbing.
       const d = e.tTarget - e.t;
@@ -298,6 +353,7 @@ export const BoxPreview = forwardRef<BoxPreviewHandle, Props>(function BoxPrevie
         if (t >= 1) e.camAnim = null;
         e.dirty = true;
       }
+      if (!e.ready) return;
       if (controls.update() || e.dirty || controls.autoRotate) {
         renderer.render(scene, camera);
         e.dirty = false;
@@ -381,17 +437,19 @@ export const BoxPreview = forwardRef<BoxPreviewHandle, Props>(function BoxPrevie
     const max = Math.min(TEX_MAX, e.renderer.capabilities.maxTextureSize);
     const px = Math.min(max / dl.width, max / dl.height, 8);
     const W = Math.round(dl.width * px), H = Math.round(dl.height * px);
-    for (const c of [e.colorCanvas, e.finishCanvas]) {
+    for (const c of [e.colorCanvas, e.finishCanvas, e.coatCanvas]) {
       if (c.width !== W || c.height !== H) {
         c.width = W;
         c.height = H;
         e.colorTex?.dispose();
         e.finishTex?.dispose();
+        e.coatTex?.dispose();
         e.colorTex = null;
       }
     }
     renderDesign(e.colorCanvas.getContext("2d")!, dl, p.design, p.catalog, p.sources, { pxPerMm: px, mode: "color", board: true });
     renderDesign(e.finishCanvas.getContext("2d")!, dl, p.design, p.catalog, p.sources, { pxPerMm: px, mode: "finish", board: true });
+    renderDesign(e.coatCanvas.getContext("2d")!, dl, p.design, p.catalog, p.sources, { pxPerMm: px, mode: "coat", board: true });
     if (!e.colorTex) {
       e.colorTex = new THREE.CanvasTexture(e.colorCanvas);
       e.colorTex.colorSpace = THREE.SRGBColorSpace;
@@ -402,19 +460,22 @@ export const BoxPreview = forwardRef<BoxPreviewHandle, Props>(function BoxPrevie
       e.outerMat.roughnessMap = e.finishTex;
       e.outerMat.metalnessMap = e.finishTex;
       e.outerMat.bumpMap = e.finishTex;
+      e.coatTex = new THREE.CanvasTexture(e.coatCanvas);
+      e.coatTex.colorSpace = THREE.NoColorSpace;
+      e.outerMat.clearcoatMap = e.coatTex;
       e.outerMat.needsUpdate = true;
     } else {
       e.colorTex.needsUpdate = true;
       e.finishTex!.needsUpdate = true;
+      e.coatTex!.needsUpdate = true;
     }
     // Lamination look.
     const lam = finishById(p.catalog, p.design.laminationId)?.effect;
-    e.outerMat.clearcoat = lam === "gloss" ? 1 : 0;
-    e.outerMat.clearcoatRoughness = 0.06;
-    e.outerMat.sheen = lam === "soft-touch" ? 0.7 : 0;
-    e.outerMat.sheenRoughness = 0.9;
-    e.outerMat.sheenColor.set(0xffffff);
-    e.outerMat.bumpScale = 3;
+    // Soft-touch: a faint velvet sheen at grazing angles, without greying the print.
+    e.outerMat.sheen = lam === "soft-touch" ? 0.35 : 0;
+    e.outerMat.sheenRoughness = 0.85;
+    e.outerMat.sheenColor.set(0xc9ced6);
+    e.outerMat.bumpScale = 7;
     const mat = p.catalog.materials.find((m) => m.id === p.design.materialId) ?? p.catalog.materials[0];
     e.innerMat.color.set(mat?.insideColor ?? "#eeeeee");
     e.dirty = true;
@@ -463,6 +524,17 @@ export const BoxPreview = forwardRef<BoxPreviewHandle, Props>(function BoxPrevie
       e.controls.target.set(0, 0, 0);
     }
     e.radius = radius;
+    // Compile shaders once, in parallel where the browser supports it, before the first frame.
+    if (!e.ready && !e.compiling) {
+      e.compiling = true;
+      if (e.texDirty) updateTextures();
+      const done = () => {
+        e.ready = true;
+        e.dirty = true;
+        setReady(true);
+      };
+      e.renderer.compileAsync(e.scene, e.camera).then(done, done);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [props.dieline]);
 
@@ -572,6 +644,11 @@ export const BoxPreview = forwardRef<BoxPreviewHandle, Props>(function BoxPrevie
   return (
     <div className="preview">
       <div className="preview-canvas" ref={hostRef} aria-label="3D box preview. Drag to rotate, scroll or pinch to zoom." role="img" />
+      {!ready && !failed && (
+        <div className="preview-fallback" aria-live="polite">
+          <span className="spinner" /> Preparing 3D preview…
+        </div>
+      )}
       {failed && (
         <div className="preview-fallback">
           3D preview needs WebGL, which is not available in this browser. You can still design on the dieline.

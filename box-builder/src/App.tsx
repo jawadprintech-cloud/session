@@ -20,7 +20,7 @@ import { QuoteDialog } from "./quote/QuoteDialog";
 
 const BoxPreview = lazy(() => import("./preview/BoxPreview").then((m) => ({ default: m.BoxPreview })));
 
-type Tab = "style" | "size" | "artwork" | "text" | "qr" | "colors" | "finishes";
+type Tab = "style" | "size" | "artwork" | "text" | "qr" | "colors" | "finishes" | "item";
 const TABS: { id: Tab; label: string; icon: string }[] = [
   { id: "style", label: "Style", icon: "M4 8l8-4 8 4-8 4-8-4zm0 0v8l8 4 8-4V8M12 12v8" },
   { id: "size", label: "Size", icon: "M4 20L20 4M4 20h6M4 20v-6M20 4h-6M20 4v6" },
@@ -333,7 +333,7 @@ function Studio({ catalog, initial, initialProjectId, readOnlyRef }: { catalog: 
   };
 
   const panelFor = (t: Tab) =>
-    ({ style: <StylePanel />, size: <SizePanel />, artwork: <ArtworkPanel />, text: <TextPanel />, qr: <QrPanel />, colors: <ColorsPanel />, finishes: <FinishesPanel /> })[t];
+    ({ style: <StylePanel />, size: <SizePanel />, artwork: <ArtworkPanel />, text: <TextPanel />, qr: <QrPanel />, colors: <ColorsPanel />, finishes: <FinishesPanel />, item: <Inspector /> })[t];
 
   const guideToggles: [keyof Guides, string, string][] = [
     ["cut", "Cut", "lg-cut"],
@@ -422,6 +422,37 @@ function Studio({ catalog, initial, initialProjectId, readOnlyRef }: { catalog: 
                 ⤓ Dieline SVG
               </button>}
             </div>
+            {selected && !readOnly && (
+              <div className="sel-bar" role="toolbar" aria-label="Selected item">
+                <button
+                  className="phone-only"
+                  onClick={() => {
+                    setTab("item");
+                    setSheetOpen(true);
+                  }}
+                >
+                  Edit
+                </button>
+                <button
+                  onClick={() => {
+                    const copy = { ...selected, id: `el_${Math.random().toString(36).slice(2, 10)}`, x: selected.x + 0.05, y: selected.y + 0.05 } as DesignElement;
+                    update((d) => ({ ...d, elements: [...d.elements, copy] }));
+                    setSelectedId(copy.id);
+                  }}
+                >
+                  Duplicate
+                </button>
+                <button
+                  className="danger"
+                  onClick={() => {
+                    update((d) => ({ ...d, elements: d.elements.filter((x) => x.id !== selected.id) }));
+                    setSelectedId(null);
+                  }}
+                >
+                  Delete
+                </button>
+              </div>
+            )}
             <DielineEditor
               dieline={dieline}
               design={design}

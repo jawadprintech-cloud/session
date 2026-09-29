@@ -76,7 +76,12 @@ export function Inspector() {
     <div className="inspector">
       <div className="insp-head">
         <strong>{TYPE_LABEL[el.type]}</strong>
-        <select className="input compact" value={el.panelId} onChange={(e) => ops.patch(el.id, { panelId: e.target.value, x: 0, y: 0 })} aria-label="Panel" disabled={s.readOnly}>
+        <select className="input compact" value={el.panelId} onChange={(e) => {
+            // Keep the item reading upright on the assembled box when it moves to a differently oriented panel.
+            const to = s.dieline.byId[e.target.value];
+            const rotation = ((el.rotation + (to?.upright ?? 0) - panel.upright) % 360 + 360) % 360;
+            ops.patch(el.id, { panelId: e.target.value, x: 0, y: 0, rotation });
+          }} aria-label="Panel" disabled={s.readOnly}>
           {s.dieline.panels.filter((p) => p.printable).map((p) => (
             <option key={p.id} value={p.id}>
               on {p.label}

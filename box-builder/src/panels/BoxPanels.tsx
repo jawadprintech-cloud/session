@@ -4,6 +4,21 @@ import { buildDieline } from "../../shared/dieline";
 import { validateDims } from "../../shared/validate";
 import { defaultPanel } from "../state/factory";
 import { useStudio } from "./context";
+import { elementSize } from "../render/renderDesign";
+import type { DesignElement } from "../../shared/design";
+import type { DielinePanel } from "../../shared/dieline";
+
+/** Scale an item down (never up) so it fits inside `panel` in its current rotation. */
+function fitInto(e: DesignElement, panel: DielinePanel): DesignElement {
+  const [w, h] = elementSize(e);
+  const turned = Math.round(e.rotation / 90) % 2 !== 0;
+  const pw = (turned ? panel.bbox.h : panel.bbox.w) * 0.9;
+  const ph = (turned ? panel.bbox.w : panel.bbox.h) * 0.9;
+  const k = Math.min(1, pw / w, ph / h);
+  if (k >= 0.999) return e;
+  if (e.type === "text") return { ...e, fontSize: Math.max(4, Math.round(e.fontSize * k * 10) / 10) };
+  return { ...e, w: e.w * k, h: e.h * k };
+}
 import { STYLE_IMAGES } from "../lib/styleImages";
 
 function StyleThumb({ style }: { style: ResolvedStyle }) {
@@ -61,10 +76,10 @@ export function StylePanel() {
           const target = dl.byId[e.panelId] ?? fallback;
           const before = s.dieline.byId[e.panelId]?.upright ?? 0;
           const rotation = (((e.rotation + target.upright - before) % 360) + 360) % 360;
-          if (dl.byId[e.panelId]) return { ...e, rotation };
+          if (dl.byId[e.panelId]) return fitInto({ ...e, rotation }, target);
           const k = spread[moved++ % spread.length];
           const alongY = fallback.upright % 180 === 0;
-          return { ...e, panelId: fallback.id, x: alongY ? 0 : k, y: alongY ? k : 0, rotation };
+          return fitInto({ ...e, panelId: fallback.id, x: alongY ? 0 : k, y: alongY ? k : 0, rotation }, fallback);
         });
       })(),
     }));

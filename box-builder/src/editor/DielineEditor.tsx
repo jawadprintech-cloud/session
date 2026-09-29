@@ -344,7 +344,7 @@ export function DielineEditor(p: Props) {
                 const span = vertical ? q.bbox.h : q.bbox.w;
                 const other = vertical ? q.bbox.w : q.bbox.h;
                 const main = q.kind === "panel";
-                const size = Math.max(2, Math.min(span / (q.label.length * 0.62 + 1), other * 0.28, main ? 11 : 5));
+                const size = Math.max(2, Math.min((span * 0.9) / (q.label.length * 0.8 + 0.5), other * 0.28, main ? 11 : 5));
                 if (size < 2.2 && !main) return null;
                 const bg = q.printable ? panelPaint(p.design, q.id)?.hex : undefined;
                 const board = p.catalog.materials.find((m) => m.id === p.design.materialId)?.boardColor;

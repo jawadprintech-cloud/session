@@ -16,7 +16,9 @@ export type RenderMode =
   /** R = bump height, G = roughness, B = metalness — drives the 3D material. */
   | "finish"
   /** Black-on-transparent mask of one area finish, for the print team. */
-  | "mask";
+  | "mask"
+  /** White where a glossy coating sits (gloss lamination, spot UV) — drives the 3D clearcoat. */
+  | "coat";
 
 export interface RenderOptions {
   pxPerMm: number;
@@ -102,7 +104,7 @@ function finishChannels(el: DesignElement, cat: ResolvedCatalog, baseRough: numb
     any = true;
     if (f.effect === "spot-uv") g = 10;
     if (f.effect === "foil") {
-      g = 55;
+      g = 85; // brushed-metal roughness: catches more light than a mirror at most angles
       b = 255;
     }
     if (f.effect === "emboss") r = 255;
@@ -267,6 +269,9 @@ export function renderDesign(
   if (o.mode === "finish") {
     ctx.fillStyle = `rgb(128,${Math.round(baseRough * 255)},0)`;
     ctx.fillRect(0, 0, dl.width, dl.height);
+  } else if (o.mode === "coat") {
+    ctx.fillStyle = lam?.effect === "gloss" ? "#ffffff" : "#000000";
+    ctx.fillRect(0, 0, dl.width, dl.height);
   } else if (o.mode === "color" && o.board && material) {
     ctx.fillStyle = material.boardColor;
     for (const p of dl.panels) ctx.fill(pp.poly.get(p.id)!);
@@ -292,6 +297,9 @@ export function renderDesign(
       const ch = finishChannels(el, cat, baseRough);
       if (!ch) continue;
       fill = `rgb(${ch[0]},${ch[1]},${ch[2]})`;
+    } else if (o.mode === "coat") {
+      if (!el.finishes.some((id) => finishById(cat, id)?.effect === "spot-uv")) continue;
+      fill = "#ffffff";
     } else if (o.mode === "mask") {
       if (!o.maskFinishId || !el.finishes.includes(o.maskFinishId)) continue;
       fill = "#000000";
