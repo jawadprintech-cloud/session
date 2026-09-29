@@ -53,6 +53,9 @@ interface PanelMesh {
   base: Float32Array; // flat 3D positions
   outer: THREE.Mesh;
   inner: THREE.Mesh;
+  /** Crisp outline along the panel edge so light boards stay readable. */
+  edge: THREE.LineLoop;
+  edgeBase: Float32Array;
 }
 
 /** Build a triangulated, optionally subdivided panel geometry in flat 3D coords with sheet UVs. */
@@ -110,8 +113,8 @@ function shadowTexture() {
   c.width = c.height = 128;
   const g = c.getContext("2d")!;
   const grad = g.createRadialGradient(64, 64, 0, 64, 64, 64);
-  grad.addColorStop(0, "rgba(0,0,0,0.32)");
-  grad.addColorStop(0.55, "rgba(0,0,0,0.12)");
+  grad.addColorStop(0, "rgba(20,24,32,0.42)");
+  grad.addColorStop(0.55, "rgba(20,24,32,0.16)");
   grad.addColorStop(1, "rgba(0,0,0,0)");
   g.fillStyle = grad;
   g.fillRect(0, 0, 128, 128);
@@ -125,6 +128,7 @@ export const BoxPreview = forwardRef<BoxPreviewHandle, Props>(function BoxPrevie
   const [playing, setPlaying] = useState(false);
   const [spin, setSpin] = useState(false);
   const [failed, setFailed] = useState(false);
+  const edgeMat = useRef<THREE.LineBasicMaterial | null>(null);
   const propsRef = useRef(props);
   propsRef.current = props;
 
@@ -170,16 +174,21 @@ export const BoxPreview = forwardRef<BoxPreviewHandle, Props>(function BoxPrevie
     }
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.toneMapping = THREE.NeutralToneMapping;
+    renderer.toneMappingExposure = 0.92;
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     host.appendChild(renderer.domElement);
     const scene = new THREE.Scene();
     const pmrem = new THREE.PMREMGenerator(renderer);
     scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
-    scene.environmentIntensity = 0.9;
-    const key = new THREE.DirectionalLight(0xffffff, 1.4);
+    // Studio lighting: moderate ambient + key + fill so each face of a white box gets its own shade.
+    scene.environmentIntensity = 0.5;
+    const fill = new THREE.DirectionalLight(0xdfe6f2, 0.45);
+    fill.position.set(-500, 150, 200);
+    scene.add(fill);
+    const key = new THREE.DirectionalLight(0xffffff, 1.25);
     key.position.set(300, 500, 400);
     scene.add(key);
-    scene.add(new THREE.AmbientLight(0xffffff, 0.25));
+    scene.add(new THREE.AmbientLight(0xffffff, 0.12));
     const camera = new THREE.PerspectiveCamera(32, 1, 1, 20000);
     camera.position.set(400, 300, 600);
     const controls = new OrbitControls(camera, renderer.domElement);
@@ -195,8 +204,11 @@ export const BoxPreview = forwardRef<BoxPreviewHandle, Props>(function BoxPrevie
     );
     shadow.rotation.x = -Math.PI / 2;
     scene.add(shadow);
-    const outerMat = new THREE.MeshPhysicalMaterial({ roughness: 1, metalness: 1, side: THREE.FrontSide });
-    const innerMat = new THREE.MeshStandardMaterial({ roughness: 0.95, metalness: 0, side: THREE.BackSide });
+    // Faces are pushed back slightly so the edge outlines always draw on top.
+    const offset = { polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 };
+    const outerMat = new THREE.MeshPhysicalMaterial({ roughness: 1, metalness: 1, side: THREE.FrontSide, ...offset });
+    const innerMat = new THREE.MeshStandardMaterial({ roughness: 0.95, metalness: 0, side: THREE.BackSide, ...offset });
+    edgeMat.current = new THREE.LineBasicMaterial({ color: 0x1b2230, transparent: true, opacity: 0.28 });
     eng.current = {
       renderer,
       scene,
@@ -339,6 +351,16 @@ export const BoxPreview = forwardRef<BoxPreviewHandle, Props>(function BoxPrevie
       attr.needsUpdate = true;
       m.geo.computeVertexNormals();
       m.geo.computeBoundingSphere();
+      const eAttr = m.edge.geometry.getAttribute("position") as THREE.BufferAttribute;
+      const eArr = eAttr.array as Float32Array;
+      for (let i = 0; i < m.edgeBase.length; i += 3) {
+        const w = deformPoint(dl, m.panel, M, applyPoint(M, [m.edgeBase[i], m.edgeBase[i + 1], 0]), e.fold.progress);
+        eArr[i] = w[0];
+        eArr[i + 1] = w[1];
+        eArr[i + 2] = w[2];
+      }
+      eAttr.needsUpdate = true;
+      m.edge.geometry.computeBoundingSphere();
     }
     const b = foldedBounds(dl, e.fold);
     e.group.position.set(-b.center[0], -b.center[1], -b.center[2]);
@@ -404,16 +426,22 @@ export const BoxPreview = forwardRef<BoxPreviewHandle, Props>(function BoxPrevie
     if (!e) return;
     const dl = props.dieline;
     e.meshes.forEach((m) => {
-      e.group.remove(m.outer, m.inner);
+      e.group.remove(m.outer, m.inner, m.edge);
       m.geo.dispose();
+      m.edge.geometry.dispose();
     });
     e.meshes = dl.panels.map((panel) => {
       const { geo, base } = panelGeometry(panel, dl, !!dl.deform);
       const outer = new THREE.Mesh(geo, e.outerMat);
       const inner = new THREE.Mesh(geo, e.innerMat);
       outer.userData.panelId = inner.userData.panelId = panel.id;
-      e.group.add(outer, inner);
-      return { panel, geo, base, outer, inner };
+      const edgeBase = new Float32Array(panel.polygon.flatMap((q) => flat3(q)));
+      const edgeGeo = new THREE.BufferGeometry();
+      edgeGeo.setAttribute("position", new THREE.BufferAttribute(new Float32Array(edgeBase), 3));
+      const edge = new THREE.LineLoop(edgeGeo, edgeMat.current!);
+      edge.raycast = () => {};
+      e.group.add(outer, inner, edge);
+      return { panel, geo, base, outer, inner, edge, edgeBase };
     });
     const prev = e.dieline;
     e.dieline = dl;

@@ -36,9 +36,13 @@ export function useElementOps() {
       const taken = (x: number, y: number) =>
         s.design.elements.some((e) => e.panelId === el.panelId && Math.abs(e.x - x) < 0.1 && Math.abs(e.y - y) < 0.1);
       if (el.x === 0 && el.y === 0) {
-        // Step along the panel's reading direction (its height for upright panels).
-        const alongY = el.rotation % 180 === 0;
-        for (const k of [0, 0.25, -0.25, 0.38, -0.38]) {
+        // Step along the panel's longer side (in its reading orientation) so items don't overlap.
+        const panel = s.dieline.byId[el.panelId];
+        const turned = el.rotation % 180 !== 0;
+        const pw = panel ? (turned ? panel.bbox.h : panel.bbox.w) : 1;
+        const ph = panel ? (turned ? panel.bbox.w : panel.bbox.h) : 1;
+        const alongY = turned ? pw > ph * 1.2 : ph >= pw * 0.8;
+        for (const k of [0, 0.3, -0.3, 0.4, -0.4]) {
           const [x, y] = alongY ? [0, k] : [k, 0];
           if (!taken(x, y)) {
             el = { ...el, x, y };
