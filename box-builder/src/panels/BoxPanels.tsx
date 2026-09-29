@@ -4,6 +4,7 @@ import { buildDieline } from "../../shared/dieline";
 import { validateDims } from "../../shared/validate";
 import { defaultPanel } from "../state/factory";
 import { useStudio } from "./context";
+import { STYLE_IMAGES } from "../lib/styleImages";
 
 function StyleThumb({ style }: { style: ResolvedStyle }) {
   const d = useMemo(() => {
@@ -81,7 +82,11 @@ export function StylePanel() {
             onClick={() => choose(st)}
             aria-pressed={st.template.id === s.design.styleId}
           >
-            <StyleThumb style={st} />
+            {st.config.image || STYLE_IMAGES[st.template.id] ? (
+              <img className="thumb photo" src={st.config.image || STYLE_IMAGES[st.template.id]} alt={`${st.name} example`} loading="lazy" />
+            ) : (
+              <StyleThumb style={st} />
+            )}
             <strong>{st.name}</strong>
             <span>{st.description}</span>
           </button>

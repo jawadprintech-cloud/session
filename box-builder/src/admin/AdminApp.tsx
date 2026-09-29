@@ -405,6 +405,10 @@ function StylesEditor({ cat, templates, onChange }: { cat: Catalog; templates: B
                     <span>Display name</span>
                     <input className="input" placeholder={t.name} value={s.name ?? ""} onChange={(e) => setStyle(s.id, { name: e.target.value || undefined })} />
                   </label>
+                  <label className="field">
+                    <span>Card photo URL (optional)</span>
+                    <input className="input" placeholder="https://… or /images/box.jpg" value={s.image ?? ""} onChange={(e) => setStyle(s.id, { image: e.target.value || undefined })} />
+                  </label>
                   <label className="field full">
                     <span>Description</span>
                     <textarea className="input" rows={2} placeholder={t.description} value={s.description ?? ""} onChange={(e) => setStyle(s.id, { description: e.target.value || undefined })} />

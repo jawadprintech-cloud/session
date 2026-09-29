@@ -9,6 +9,8 @@ export interface StyleConfig {
   order: number;
   name?: string;
   description?: string;
+  /** Product photo for the style card (URL). Falls back to a built-in photo or the dieline outline. */
+  image?: string;
   /** Replaces the template's own standard sizes when set. */
   standardSizes?: StandardSize[];
   /** Narrows/widens dimension limits per key. */

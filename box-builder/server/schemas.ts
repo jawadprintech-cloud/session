@@ -139,6 +139,7 @@ const styleConfig = z.object({
   order: z.number().int(),
   name: z.string().max(120).optional(),
   description: z.string().max(1000).optional(),
+  image: z.string().max(2000).regex(/^(https:\/\/|\/)/, "Image must be an https:// URL or a site path").optional(),
   standardSizes: z
     .array(z.object({ id: z.string().max(64), label: z.string().max(120), dims: z.record(z.string().max(16), num.positive()) }))
     .max(100)
