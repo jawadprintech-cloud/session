@@ -1,5 +1,9 @@
 import type { ResolvedCatalog } from "../../shared/catalog";
 import type { Design } from "../../shared/design";
+import { demoApi, demoAssets } from "./demo";
+
+/** Static demo build: everything runs in the browser, no server. */
+export const DEMO = import.meta.env.VITE_DEMO === "1";
 
 export class ApiError extends Error {
   constructor(
@@ -37,7 +41,7 @@ const json = (method: string, body: unknown, headers: Record<string, string> = {
   body: JSON.stringify(body),
 });
 
-export const api = {
+const serverApi = {
   catalog: () => request<ResolvedCatalog>("/api/catalog"),
   uploadAsset: (blob: Blob, fileName: string, kind: "upload" | "generated" = "upload") =>
     request<{ id: string; url: string; mime: string; size: number }>("/api/assets", {
@@ -55,7 +59,9 @@ export const api = {
   submitQuote: (body: unknown) => request<{ id: string; reference: string }>("/api/quotes", json("POST", body)),
 };
 
-export const assetUrl = (id: string) => `/api/assets/${id}`;
+export const api: typeof serverApi = DEMO ? (demoApi as unknown as typeof serverApi) : serverApi;
+
+export const assetUrl = (id: string) => (DEMO ? (demoAssets.url(id) ?? "") : `/api/assets/${id}`);
 
 // ------------------------------------------------------------------ admin
 const TOKEN_KEY = "bb-admin-token";

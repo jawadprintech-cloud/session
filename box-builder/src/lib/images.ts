@@ -1,5 +1,6 @@
 import UTIF from "utif";
-import { assetUrl } from "./api";
+import { assetUrl, DEMO } from "./api";
+import { demoAssets } from "./demo";
 
 export const ACCEPTED_EXT = ["jpg", "jpeg", "png", "tif", "tiff", "webp"];
 export const ACCEPT_ATTR = ".jpg,.jpeg,.png,.tif,.tiff,.webp,image/jpeg,image/png,image/tiff,image/webp";
@@ -118,8 +119,16 @@ export class ImageCache {
         this.failed.add(id);
         this.emit();
       };
-      img.src = assetUrl(id);
       this.images.set(id, img);
+      if (DEMO && !demoAssets.url(id)) {
+        void demoAssets.restore(id).then((u) => {
+          if (u) img!.src = u;
+          else {
+            this.failed.add(id);
+            this.emit();
+          }
+        });
+      } else img.src = assetUrl(id);
     }
     return img.complete && img.naturalWidth > 0 ? img : null;
   }
@@ -135,7 +144,9 @@ export class ImageCache {
 
 /** Full-resolution original for print rendering (decodes TIFF in the browser). */
 export async function loadOriginal(id: string, mime: string): Promise<CanvasImageSource> {
-  const res = await fetch(assetUrl(id));
+  const url = DEMO ? await demoAssets.restore(id) : assetUrl(id);
+  if (!url) throw new Error("Could not load original artwork.");
+  const res = await fetch(url);
   if (!res.ok) throw new Error("Could not load original artwork.");
   if (mime === "image/tiff") return decodeTiff(await res.arrayBuffer()).canvas;
   return createImageBitmap(await res.blob());

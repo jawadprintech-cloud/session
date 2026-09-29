@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { describePaint } from "../../shared/design";
 import { toUnit } from "../../shared/catalog";
-import { api } from "../lib/api";
+import { api, DEMO } from "../lib/api";
 import { preflight } from "../lib/preflight";
 import type { BoxPreviewHandle } from "../preview/BoxPreview";
 import { buildPrintFiles, dataUrlToBlob } from "../render/exports";
@@ -333,7 +333,13 @@ export function QuoteDialog({ preview, sources, saveProject, onClose, onFocusEle
             <p className="lead">
               Thank you, {form.name.split(" ")[0]}! Your reference is <strong>{result.reference}</strong>.
             </p>
-            <p>We've received your design and will email {form.email} with your custom quotation. Your design stays saved — you can keep editing it any time from this link.</p>
+            {DEMO ? (
+              <p>
+                This is the demo, so nothing was sent. In the live version your team receives the request with the print-ready artwork, dieline, finish masks, 3D mockups and original uploads, and replies to {form.email} with a quotation.
+              </p>
+            ) : (
+              <p>We've received your design and will email {form.email} with your custom quotation. Your design stays saved — you can keep editing it any time from this link.</p>
+            )}
             <footer className="modal-foot">
               <button className="btn primary" onClick={onClose}>Back to my design</button>
             </footer>

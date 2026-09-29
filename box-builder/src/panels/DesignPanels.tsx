@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { FontOption } from "../../shared/catalog";
 import { panelPaint, type QrContent, type QrElement, type TextElement } from "../../shared/design";
 import { ColorPicker } from "../components/ColorPicker";
-import { api } from "../lib/api";
+import { api, assetUrl } from "../lib/api";
 import { contrastRatio } from "../lib/color";
 import { ACCEPT_ATTR, prepareUpload } from "../lib/images";
 import { encodeQr, minQrSizeMm, qrMatrix, QUIET_ZONE } from "../lib/qr";
@@ -111,7 +111,7 @@ export function ArtworkPanel() {
           <div className="thumb-grid">
             {images.map((im) => (
               <button key={im.id} className={`img-thumb ${s.selected?.id === im.id ? "on" : ""}`} onClick={() => s.select(im.id)} title={`${im.fileName} · ${s.dieline.byId[im.panelId]?.label ?? ""}`}>
-                <img src={`/api/assets/${im.assetId}`} alt={im.fileName} />
+                <img src={assetUrl(im.assetId)} alt={im.fileName} />
               </button>
             ))}
           </div>

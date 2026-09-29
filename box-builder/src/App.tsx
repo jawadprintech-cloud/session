@@ -4,7 +4,7 @@ import { buildDieline, type Dieline } from "../shared/dieline";
 import type { Design, DesignElement } from "../shared/design";
 import { validateDims } from "../shared/validate";
 import { DielineEditor, type Guides } from "./editor/DielineEditor";
-import { adminApi, api } from "./lib/api";
+import { adminApi, api, DEMO } from "./lib/api";
 import { ensureFont, registerFonts } from "./lib/fonts";
 import { ImageCache } from "./lib/images";
 import { StudioContext, type Studio } from "./panels/context";
@@ -225,7 +225,8 @@ function Studio({ catalog, initial, initialProjectId, readOnlyRef }: { catalog: 
   };
 
   const newProject = () => {
-    if (!confirm("Start a new design? Your current design stays available from its saved link.")) return;
+    // Browser dialogs are unavailable in the embedded demo.
+    if (!DEMO && !confirm("Start a new design? Your current design stays available from its saved link.")) return;
     const url = new URL(location.href);
     url.searchParams.delete("project");
     history.replaceState(null, "", url);
@@ -373,6 +374,11 @@ function Studio({ catalog, initial, initialProjectId, readOnlyRef }: { catalog: 
             )}
           </div>
         </header>
+        {DEMO && (
+          <div className="banner">
+            Demo version: designs and uploads are saved in this browser only, and quote requests are simulated (all production files are still generated).
+          </div>
+        )}
         {readOnly && <div className="banner">Viewing quote {readOnlyRef} – read-only snapshot of the submitted design.</div>}
         <div className="mobile-switch">
           <button className={mobileView === "design" ? "on" : ""} onClick={() => setMobileView("design")}>Dieline</button>
@@ -412,9 +418,9 @@ function Studio({ catalog, initial, initialProjectId, readOnlyRef }: { catalog: 
                   </button>
                 ))}
               </div>
-              <button className="btn small ghost hide-sm" onClick={downloadDieline} title="Download the dieline as SVG">
+              {!DEMO && <button className="btn small ghost hide-sm" onClick={downloadDieline} title="Download the dieline as SVG">
                 ⤓ Dieline SVG
-              </button>
+              </button>}
             </div>
             <DielineEditor
               dieline={dieline}
@@ -465,20 +471,28 @@ function Studio({ catalog, initial, initialProjectId, readOnlyRef }: { catalog: 
                 <button className="icon-btn" onClick={() => setShareOpen(false)} aria-label="Close">✕</button>
               </header>
               <div className="modal-body">
+                {DEMO ? (
+                  <p>Your design is saved in this browser. Open this page again on the same device to continue editing — it reopens automatically.</p>
+                ) : (
                 <p>Your design is saved. Bookmark or copy this private link to continue editing later on any device:</p>
+                )}
+                {!DEMO && (
                 <div className="row">
                   <input className="input mono" readOnly value={location.href} onFocus={(e) => e.target.select()} />
                   <button
                     className="btn"
                     onClick={() => {
-                      void navigator.clipboard?.writeText(location.href);
-                      toast("Link copied", "success");
+                      navigator.clipboard
+                        ?.writeText(location.href)
+                        .then(() => toast("Link copied", "success"))
+                        .catch(() => toast("Select the link and copy it manually.", "info"));
                     }}
                   >
                     Copy
                   </button>
                 </div>
-                <p className="hint">Anyone with this link can open and edit the design. Save again at any time with Ctrl+S.</p>
+                )}
+                {!DEMO && <p className="hint">Anyone with this link can open and edit the design. Save again at any time with Ctrl+S.</p>}
                 <footer className="modal-foot">
                   <button className="btn primary" onClick={() => setShareOpen(false)}>Continue designing</button>
                 </footer>
