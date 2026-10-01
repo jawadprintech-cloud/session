@@ -4,14 +4,14 @@
   "private": true,
   "type": "module",
   "engines": {
-    "node": ">=20.10"
+    "node": ">=20.11"
   },
   "scripts": {
     "dev": "node scripts/dev.mjs",
     "dev:client": "vite",
     "dev:server": "tsx watch server/index.ts",
     "build": "vite build",
-    "start": "NODE_ENV=production tsx server/index.ts",
+    "start": "tsx server/index.ts --production",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },

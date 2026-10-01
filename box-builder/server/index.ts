@@ -4,7 +4,8 @@ import { existsSync } from "node:fs";
 import { createApp } from "./app";
 
 const root = path.resolve(import.meta.dirname, "..");
-const production = process.env.NODE_ENV === "production";
+// `--production` works on every OS (Windows shells cannot set NODE_ENV inline).
+const production = process.env.NODE_ENV === "production" || process.argv.includes("--production");
 const port = Number(process.env.PORT ?? (production ? 8080 : process.env.API_PORT ?? 8787));
 const host = process.env.HOST ?? (production ? "0.0.0.0" : "127.0.0.1");
 const dataDir = path.resolve(process.env.DATA_DIR ?? path.join(root, "data"));

@@ -30,9 +30,18 @@ No pricing is calculated — quote requests go to your team with print-ready fil
 - Proof image with guides, 4 × 3D mockup renders, full design JSON
 - All original artwork files
 
+## Opening in Visual Studio Code
+
+1. Install [Node.js](https://nodejs.org) 20.11 or newer (the current LTS is fine).
+2. Unzip, then in VS Code choose **File → Open Folder…** and pick the `custom-box-builder` folder.
+3. Open a terminal (**Terminal → New Terminal**) and run `npm install`, then `npm run dev`.
+4. Open http://localhost:5173 for the builder and http://localhost:5173/admin.html for the admin (password `admin` in development).
+
+Works the same on Windows, macOS and Linux.
+
 ## Running it
 
-Requires Node.js 20.10+.
+Requires Node.js 20.11+.
 
 ```sh
 cd box-builder
@@ -44,7 +53,7 @@ Production:
 
 ```sh
 npm run build
-ADMIN_PASSWORD='choose-a-strong-one' PORT=8080 npm start    # serves the app, /admin and /api
+ADMIN_PASSWORD='choose-a-strong-one' PORT=8080 npm start   # Windows PowerShell: $env:ADMIN_PASSWORD='…'; npm start    # serves the app, /admin and /api
 ```
 
 | Env var | Purpose |
