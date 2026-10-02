@@ -1,7 +1,7 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { effectiveTemplate, resolveStyles, type ResolvedCatalog } from "../shared/catalog";
-import { buildDieline, type Dieline } from "../shared/dieline";
-import type { Design, DesignElement } from "../shared/design";
+import { buildDieline, mirrorDieline, type Dieline } from "../shared/dieline";
+import { applySurfaceView, surfaceView, uid, type Design, type DesignElement, type Side } from "../shared/design";
 import { validateDims } from "../shared/validate";
 import { DielineEditor, type Guides } from "./editor/DielineEditor";
 import { adminApi, api, DEMO } from "./lib/api";
@@ -10,9 +10,10 @@ import { ImageCache } from "./lib/images";
 import { StudioContext, type Studio } from "./panels/context";
 import { SizePanel, StylePanel } from "./panels/BoxPanels";
 import { ArtworkPanel, ColorsPanel, FinishesPanel, QrPanel, TextPanel } from "./panels/DesignPanels";
+import { ElementsPanel, LayersPanel } from "./panels/ToolPanels";
 import { Inspector } from "./panels/Inspector";
 import type { BoxPreviewHandle } from "./preview/BoxPreview";
-import { dielineSvg } from "./render/exports";
+import { dielineSvg, saveDesignPdf } from "./render/exports";
 import type { RenderSources } from "./render/renderDesign";
 import { defaultPanel, newDesign } from "./state/factory";
 import { useHistory } from "./state/history";
@@ -20,15 +21,17 @@ import { QuoteDialog } from "./quote/QuoteDialog";
 
 const BoxPreview = lazy(() => import("./preview/BoxPreview").then((m) => ({ default: m.BoxPreview })));
 
-type Tab = "style" | "size" | "artwork" | "text" | "qr" | "colors" | "finishes" | "item";
+type Tab = "style" | "size" | "artwork" | "text" | "elements" | "qr" | "colors" | "finishes" | "layers" | "item";
 const TABS: { id: Tab; label: string; icon: string }[] = [
   { id: "style", label: "Style", icon: "M4 8l8-4 8 4-8 4-8-4zm0 0v8l8 4 8-4V8M12 12v8" },
   { id: "size", label: "Size", icon: "M4 20L20 4M4 20h6M4 20v-6M20 4h-6M20 4v6" },
   { id: "artwork", label: "Upload", icon: "M12 16V4m0 0l-4 4m4-4l4 4M4 16v3a1 1 0 001 1h14a1 1 0 001-1v-3" },
   { id: "text", label: "Text", icon: "M5 6V4h14v2M12 4v16m-3 0h6" },
+  { id: "elements", label: "Elements", icon: "M3 3h8v8H3zM17 3l4 7h-8zM7 21a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM14 14h7v7h-7z" },
   { id: "qr", label: "QR", icon: "M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h2v2h-2zM18 18h2v2h-2zM14 18h2M18 14h2" },
   { id: "colors", label: "Colours", icon: "M12 3a9 9 0 100 18c1 0 1.5-.8 1.5-1.5 0-1.2-1-1.5-1-2.5s.8-1.5 1.8-1.5H17a4 4 0 004-4c0-4.4-4-8.5-9-8.5zM7.5 11.5h.01M10 7.5h.01M15 7.5h.01" },
   { id: "finishes", label: "Finishes", icon: "M12 3l2.5 5.5L20 9l-4 4 1 6-5-3-5 3 1-6-4-4 5.5-.5z" },
+  { id: "layers", label: "Layers", icon: "M12 2 2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" },
 ];
 
 const DRAFT_KEY = "bb-draft-v1";
@@ -113,7 +116,12 @@ export function App() {
 
 function Studio({ catalog, initial, initialProjectId, readOnlyRef }: { catalog: ResolvedCatalog; initial: Design; initialProjectId: string | null; readOnlyRef: string | null }) {
   const h = useHistory<Design>(initial);
-  const design = h.value;
+  const full = h.value;
+  /** Which face of the board is being designed. */
+  const [side, setSideState] = useState<Side>("outside");
+  const design = useMemo(() => surfaceView(full, side), [full, side]);
+  const clipboard = useRef<DesignElement | null>(null);
+  const [pdfBusy, setPdfBusy] = useState(false);
   const readOnly = !!readOnlyRef;
   const [tab, setTab] = useState<Tab>("style");
   const [sheetOpen, setSheetOpen] = useState(false);
@@ -125,6 +133,10 @@ function Studio({ catalog, initial, initialProjectId, readOnlyRef }: { catalog: 
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [projectId, setProjectId] = useState<string | null>(initialProjectId);
   const [savedDesign, setSavedDesign] = useState<Design | null>(initialProjectId ? initial : null);
+  const setSide = useCallback((s: Side) => {
+    setSideState(s);
+    setSelectedId(null);
+  }, []);
   const [saving, setSaving] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
   const [quoteOpen, setQuoteOpen] = useState(false);
@@ -152,21 +164,41 @@ function Studio({ catalog, initial, initialProjectId, readOnlyRef }: { catalog: 
     return (lastGood.current = buildDieline(t, Object.fromEntries(t.dimensions.map((d) => [d.key, d.default])), { bleed: catalog.settings.bleedMm, safe: catalog.settings.safeMm }));
   }, [style, design.dims, catalog.settings]);
 
-  const activePanel = (activePanelId && dieline.byId[activePanelId]) || defaultPanel(dieline);
+  /** The dieline as seen from the face being edited (the interior is the mirror image). */
+  const viewDieline = useMemo(() => (side === "inside" ? mirrorDieline(dieline) : dieline), [dieline, side]);
+  const activePanel = (activePanelId && viewDieline.byId[activePanelId]) || defaultPanel(viewDieline);
   const selected = design.elements.find((e) => e.id === selectedId) ?? null;
 
   // Fonts: make sure every face in use is loaded, then repaint.
   useEffect(() => {
-    for (const el of design.elements) {
+    for (const el of [...full.elements, ...(full.inside?.elements ?? [])]) {
       if (el.type === "text") ensureFont(el.fontFamily, el.bold, el.italic, () => setVersion((v) => v + 1));
     }
-  }, [design.elements]);
+  }, [full.elements, full.inside]);
 
+  /**
+   * Every tool edits the active face through this: it receives the face's view of the design
+   * and its result is written back to the right place in the full design.
+   */
   const update = useCallback(
     (fn: (d: Design) => Design, mergeKey?: string) => {
-      if (!readOnly) h.update(fn, mergeKey);
+      if (readOnly) return;
+      h.update((d) => {
+        const view = surfaceView(d, side);
+        const next = applySurfaceView(d, side, fn(view));
+        if (next.styleId === d.styleId) return next;
+        // Style changed: move the other face's items off panels the new style doesn't have.
+        const tpl = catalog.templates.find((t) => t.id === next.styleId);
+        if (!tpl) return next;
+        const ids = new Set(tpl.panels.map((p) => p.id));
+        const fallback = tpl.panels.find((p) => p.face === "front")?.id ?? tpl.panels[0].id;
+        const fix = (els: DesignElement[]) => els.map((e) => (ids.has(e.panelId) ? e : { ...e, panelId: fallback, x: 0, y: 0 }));
+        if (side === "outside" && next.inside) return { ...next, inside: { ...next.inside, elements: fix(next.inside.elements) } };
+        if (side === "inside") return { ...next, elements: fix(next.elements) };
+        return next;
+      }, mergeKey);
     },
-    [h, readOnly],
+    [h, readOnly, side, catalog.templates],
   );
 
   // Local draft so a refresh never loses work.
@@ -174,15 +206,15 @@ function Studio({ catalog, initial, initialProjectId, readOnlyRef }: { catalog: 
     if (readOnly) return;
     const t = setTimeout(() => {
       try {
-        localStorage.setItem(DRAFT_KEY, JSON.stringify({ design, projectId }));
+        localStorage.setItem(DRAFT_KEY, JSON.stringify({ design: full, projectId }));
       } catch {
         /* storage full or blocked */
       }
     }, 600);
     return () => clearTimeout(t);
-  }, [design, projectId, readOnly]);
+  }, [full, projectId, readOnly]);
 
-  const dirty = savedDesign !== design;
+  const dirty = savedDesign !== full;
   useEffect(() => {
     const onBeforeUnload = (e: BeforeUnloadEvent) => {
       if (dirty && projectId) e.preventDefault();
@@ -196,7 +228,7 @@ function Studio({ catalog, initial, initialProjectId, readOnlyRef }: { catalog: 
     if (readOnly) return undefined;
     setSaving(true);
     try {
-      const snapshot = design;
+      const snapshot = full;
       let id = projectId;
       if (id) await api.saveProject(id, snapshot);
       else {
@@ -211,7 +243,7 @@ function Studio({ catalog, initial, initialProjectId, readOnlyRef }: { catalog: 
     } finally {
       setSaving(false);
     }
-  }, [design, projectId, readOnly]);
+  }, [full, projectId, readOnly]);
 
   const onSave = async () => {
     try {
@@ -234,16 +266,40 @@ function Studio({ catalog, initial, initialProjectId, readOnlyRef }: { catalog: 
     setSavedDesign(null);
     h.reset(newDesign(catalog, design.styleId));
     setSelectedId(null);
+    setSideState("outside");
     setTab("style");
   };
 
-  const downloadDieline = () => {
-    const svg = dielineSvg(dieline, design, catalog);
+  const saveFile = (blob: Blob, name: string) => {
     const a = document.createElement("a");
-    a.href = URL.createObjectURL(new Blob([svg], { type: "image/svg+xml" }));
-    a.download = `${style.template.id}-dieline.svg`;
+    a.href = URL.createObjectURL(blob);
+    a.download = name;
+    document.body.appendChild(a);
     a.click();
-    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+    // The embedded online preview blocks downloads; the full version saves normally.
+    if (DEMO) toast("If no file appears, this preview window blocks downloads. Downloads work in the full version.", "info");
+  };
+
+  const downloadDieline = () => {
+    const svg = dielineSvg(dieline, full, catalog);
+    saveFile(new Blob([svg], { type: "image/svg+xml" }), `${style.template.id}-dieline.svg`);
+  };
+
+  const downloadPdf = async () => {
+    setPdfBusy(true);
+    try {
+      const shots = previewRef.current?.capture(["hero", "heroBack"], 1200, 900) ?? [];
+      const blob = await saveDesignPdf({ dieline, design: full, catalog, sources, styleName: style.name, mockups: shots });
+      const slug = (full.name || "box-design").replace(/[^\w-]+/g, "-").slice(0, 40);
+      saveFile(blob, `${slug}.pdf`);
+      toast("PDF created", "success");
+    } catch (e) {
+      toast(`Could not create the PDF: ${(e as Error).message}`, "error");
+    } finally {
+      setPdfBusy(false);
+    }
   };
 
   // ------------------------------------------------------------- element ops
@@ -288,8 +344,22 @@ function Studio({ catalog, initial, initialProjectId, readOnlyRef }: { catalog: 
         void onSave();
         return;
       }
+      if (mod && e.key.toLowerCase() === "v" && clipboard.current && !readOnly) {
+        e.preventDefault();
+        const src = clipboard.current;
+        const copy = { ...src, id: uid(), panelId: viewDieline.byId[src.panelId] ? src.panelId : activePanel.id, x: src.x + 0.04, y: src.y + 0.04 } as DesignElement;
+        clipboard.current = copy;
+        update((d) => ({ ...d, elements: [...d.elements, copy] }));
+        setSelectedId(copy.id);
+        return;
+      }
       if (!selected || readOnly) {
         if (e.key === "Escape") setSelectedId(null);
+        return;
+      }
+      if (mod && e.key.toLowerCase() === "c") {
+        clipboard.current = selected;
+        toast("Copied — paste with Ctrl+V (works across Exterior and Interior)", "info");
         return;
       }
       if (e.key === "Delete" || e.key === "Backspace") {
@@ -305,7 +375,7 @@ function Studio({ catalog, initial, initialProjectId, readOnlyRef }: { catalog: 
       } else if (e.key.startsWith("Arrow") && !selected.locked) {
         e.preventDefault();
         const step = e.shiftKey ? 10 : 1;
-        const p = dieline.byId[selected.panelId];
+        const p = viewDieline.byId[selected.panelId];
         if (!p) return;
         const dx = e.key === "ArrowLeft" ? -step : e.key === "ArrowRight" ? step : 0;
         const dy = e.key === "ArrowUp" ? -step : e.key === "ArrowDown" ? step : 0;
@@ -321,7 +391,7 @@ function Studio({ catalog, initial, initialProjectId, readOnlyRef }: { catalog: 
     styles,
     style,
     design,
-    dieline,
+    dieline: viewDieline,
     update,
     selected,
     select: selectElement,
@@ -333,7 +403,7 @@ function Studio({ catalog, initial, initialProjectId, readOnlyRef }: { catalog: 
   };
 
   const panelFor = (t: Tab) =>
-    ({ style: <StylePanel />, size: <SizePanel />, artwork: <ArtworkPanel />, text: <TextPanel />, qr: <QrPanel />, colors: <ColorsPanel />, finishes: <FinishesPanel />, item: <Inspector /> })[t];
+    ({ style: <StylePanel />, size: <SizePanel />, artwork: <ArtworkPanel />, text: <TextPanel />, qr: <QrPanel />, colors: <ColorsPanel />, finishes: <FinishesPanel />, elements: <ElementsPanel />, layers: <LayersPanel />, item: <Inspector /> })[t];
 
   const guideToggles: [keyof Guides, string, string][] = [
     ["cut", "Cut", "lg-cut"],
@@ -367,7 +437,14 @@ function Studio({ catalog, initial, initialProjectId, readOnlyRef }: { catalog: 
                 <button className="btn" onClick={onSave} disabled={saving}>
                   {saving ? "Saving…" : projectId && !dirty ? "✓ Saved" : "Save"}
                 </button>
-                <button className="btn primary" onClick={() => setQuoteOpen(true)}>
+                <button
+                  className="btn primary"
+                  onClick={() => {
+                    // The quote covers both faces; the dialog works on the full design.
+                    setSide("outside");
+                    setQuoteOpen(true);
+                  }}
+                >
                   Submit for Quote
                 </button>
               </>
@@ -411,6 +488,14 @@ function Studio({ catalog, initial, initialProjectId, readOnlyRef }: { catalog: 
           </aside>
           <main className="center">
             <div className="editor-bar">
+              <div className="seg side-switch" role="tablist" aria-label="Box face">
+                <button role="tab" aria-selected={side === "outside"} className={side === "outside" ? "on" : ""} onClick={() => setSide("outside")}>
+                  Exterior
+                </button>
+                <button role="tab" aria-selected={side === "inside"} className={side === "inside" ? "on" : ""} onClick={() => setSide("inside")}>
+                  Interior
+                </button>
+              </div>
               <div className="guides" role="group" aria-label="Guides">
                 {guideToggles.map(([k, label, cls]) => (
                   <button key={k} className={`guide-toggle ${guides[k] ? "on" : ""}`} onClick={() => setGuides((g) => ({ ...g, [k]: !g[k] }))} aria-pressed={guides[k]}>
@@ -418,11 +503,34 @@ function Studio({ catalog, initial, initialProjectId, readOnlyRef }: { catalog: 
                   </button>
                 ))}
               </div>
-              {!DEMO && <button className="btn small ghost hide-sm" onClick={downloadDieline} title="Download the dieline as SVG">
-                ⤓ Dieline SVG
-              </button>}
+              <div className="file-actions">
+                <button className="btn small" onClick={downloadDieline} title="Download the flat dieline (cut and fold lines) as an SVG file">
+                  ⤓ Download Dieline SVG
+                </button>
+                <button className="btn small" onClick={downloadPdf} disabled={pdfBusy} title="Save the design, 3D mockups and dielines as a PDF">
+                  {pdfBusy ? "Creating PDF…" : "⤓ Save to PDF"}
+                </button>
+              </div>
             </div>
-            {selected && !readOnly && (
+            {side === "inside" && (
+              <div className="side-note">
+                <strong>Interior</strong> — you are designing the inside of the box, shown as seen from inside (the mirror image of the outside layout).
+              </div>
+            )}
+            <div className="editor-wrap">
+            <DielineEditor
+              dieline={viewDieline}
+              design={design}
+              catalog={catalog}
+              sources={sources}
+              version={version}
+              guides={guides}
+              selectedId={selectedId}
+              activePanelId={activePanel.id}
+              onSelectElement={selectElement}
+              onSelectPanel={setActivePanelId}
+              onChangeElement={changeElement}
+              selectionActions={selected && !readOnly ? (
               <div className="sel-bar" role="toolbar" aria-label="Selected item">
                 <button
                   className="phone-only"
@@ -435,7 +543,7 @@ function Studio({ catalog, initial, initialProjectId, readOnlyRef }: { catalog: 
                 </button>
                 <button
                   onClick={() => {
-                    const copy = { ...selected, id: `el_${Math.random().toString(36).slice(2, 10)}`, x: selected.x + 0.05, y: selected.y + 0.05 } as DesignElement;
+                    const copy = { ...selected, id: uid(), x: selected.x + 0.05, y: selected.y + 0.05 } as DesignElement;
                     update((d) => ({ ...d, elements: [...d.elements, copy] }));
                     setSelectedId(copy.id);
                   }}
@@ -452,27 +560,17 @@ function Studio({ catalog, initial, initialProjectId, readOnlyRef }: { catalog: 
                   Delete
                 </button>
               </div>
-            )}
-            <DielineEditor
-              dieline={dieline}
-              design={design}
-              catalog={catalog}
-              sources={sources}
-              version={version}
-              guides={guides}
-              selectedId={selectedId}
-              activePanelId={activePanel.id}
-              onSelectElement={selectElement}
-              onSelectPanel={setActivePanelId}
-              onChangeElement={changeElement}
+              ) : null}
             />
+            </div>
           </main>
           <section className="right">
             <Suspense fallback={<div className="preview loading"><span className="spinner" /></div>}>
               <BoxPreview
                 ref={previewRef}
                 dieline={dieline}
-                design={design}
+                design={full}
+                side={side}
                 catalog={catalog}
                 sources={sources}
                 version={version}

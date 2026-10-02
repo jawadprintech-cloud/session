@@ -16,6 +16,12 @@ No pricing is calculated — quote requests go to your team with print-ready fil
 | Text — font, size, colour, bold, italic, alignment, rotation, position, letter spacing, line height | Text tab |
 | QR codes — URL, text, vCard contact, email, phone; scannability checks | QR tab (rendered as vector modules at any resolution) |
 | Finishes — matte / gloss / soft-touch lamination, spot UV, gold / silver / rose foil, emboss, deboss | Finishes tab; shown in 3D via roughness / metalness / bump maps |
+| Interior printing — switch between Exterior and Interior; same tools; 3D opens to show the inside | Editor bar → Exterior / Interior |
+| Elements — rectangle, circle, triangle, star, line and packaging icons (this way up, fragile, keep dry, recyclable…) | Elements tab (`src/lib/icons.ts` to add icons) |
+| Layers — select, show/hide, lock and reorder every item | Layers tab |
+| Align to panel (safe area), flip horizontal/vertical, copy/paste (Ctrl+C / Ctrl+V, also between faces) | Inspector + keyboard |
+| Download Dieline SVG and Save to PDF (summary + 3D mockups + 1:1 exterior/interior dielines) | Editor bar |
+| Contact Us button (email, phone, WhatsApp, contact page — set in Admin → Settings) | Style tab |
 | Real-time 3D mockup — 360° rotate, zoom, views, open / closed / flat fold animation | `src/preview/BoxPreview.tsx` (three.js) |
 | Save & continue | Private project link (`?project=…`) + automatic local draft |
 | Submit for quote | Customer info, quantity (+ extra quantities), material, printing, notes, preflight checks |
@@ -28,6 +34,7 @@ No pricing is calculated — quote requests go to your team with print-ready fil
 - Vector dieline SVG (in mm) with Cut, Crease, Bleed, Safe Area and label layers + artwork reference
 - A black-on-white mask per special finish (spot UV, foil, emboss…)
 - Proof image with guides, 4 × 3D mockup renders, full design JSON
+- Interior print artwork when the inside is printed
 - All original artwork files
 
 ## Opening in Visual Studio Code

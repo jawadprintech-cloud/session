@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { evaluate } from "../shared/expr";
-import { buildDieline } from "../shared/dieline";
+import { buildDieline, mirrorDieline } from "../shared/dieline";
+import { applySurfaceView, hasInsidePrint, surfaceView, type Design } from "../shared/design";
 import { foldedBounds } from "../shared/fold";
 import { pointInPolygon, bboxOf, type Pt } from "../shared/geom";
 import { BUILTIN_TEMPLATES } from "../shared/templates";
@@ -135,5 +136,44 @@ describe("validation", () => {
     expect(validateTemplate({ schema: 1, id: "X", name: "" }, settings).length).toBeGreaterThan(0);
     const broken = { ...rte, id: "broken", panels: [...rte.panels, { id: "x", label: "X", parent: "nope", edge: "top", depth: 10 }] };
     expect(validateTemplate(broken, settings).join(" ")).toMatch(/Unknown panel/);
+  });
+});
+
+describe("interior (mirrored) dieline", () => {
+  const t = BUILTIN_TEMPLATES.find((x) => x.id === "reverse-tuck-end")!;
+  const dl = buildDieline(t, { L: 90, W: 60, H: 150 }, opts);
+  const m = mirrorDieline(dl);
+  it("mirrors every panel left-to-right and keeps sizes", () => {
+    for (const p of dl.panels) {
+      const q = m.byId[p.id];
+      expect(q.bbox.w).toBeCloseTo(p.bbox.w, 6);
+      expect(q.center[0]).toBeCloseTo(dl.width - p.center[0], 6);
+      expect(q.center[1]).toBeCloseTo(p.center[1], 6);
+    }
+    expect(m.cutLines.length).toBe(dl.cutLines.length);
+    expect(mirrorDieline(dl)).toBe(m); // cached
+  });
+  it("swaps the left-to-right order of panels when seen from inside", () => {
+    expect(dl.byId["right"].center[0]).toBeLessThan(dl.byId["back"].center[0]);
+    expect(m.byId["right"].center[0]).toBeGreaterThan(m.byId["back"].center[0]);
+  });
+});
+
+describe("surface views", () => {
+  const design = {
+    version: 1, name: "x", styleId: "mailer-box", dims: {}, sizeMode: "custom", unit: "mm", materialId: "kraft",
+    colors: { base: { hex: "#ffffff" }, panels: {} }, laminationId: null, elements: [],
+  } as unknown as Design;
+  it("edits to the interior never touch the exterior and vice versa", () => {
+    const inside = surfaceView(design, "inside");
+    expect(inside.elements).toEqual([]);
+    expect(inside.colors.base).toBeNull();
+    const edited = applySurfaceView(design, "inside", { ...inside, colors: { base: { hex: "#ff0000" }, panels: {} } });
+    expect(edited.colors.base?.hex).toBe("#ffffff");
+    expect(edited.inside?.colors.base?.hex).toBe("#ff0000");
+    expect(hasInsidePrint(edited)).toBe(true);
+    const out = applySurfaceView(edited, "outside", { ...surfaceView(edited, "outside"), name: "y" });
+    expect(out.inside?.colors.base?.hex).toBe("#ff0000");
+    expect(hasInsidePrint(design)).toBe(false);
   });
 });

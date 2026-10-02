@@ -1,7 +1,7 @@
 import type { ResolvedCatalog } from "../../shared/catalog";
 import { resolveStyles } from "../../shared/catalog";
 import type { Dieline, DielinePanel } from "../../shared/dieline";
-import { PT_TO_MM, uid, type Design, type ImageElement, type QrContent, type QrElement, type ShapeElement, type TextElement } from "../../shared/design";
+import { PT_TO_MM, uid, type Design, type IconElement, type ImageElement, type QrContent, type QrElement, type ShapeElement, type TextElement } from "../../shared/design";
 import { encodeQr } from "../lib/qr";
 
 export function newDesign(cat: ResolvedCatalog, styleId?: string): Design {
@@ -99,7 +99,8 @@ export function makeQr(panel: DielinePanel, content: QrContent): QrElement {
 }
 
 export function makeShape(panel: DielinePanel, shape: ShapeElement["shape"], hex: string): ShapeElement {
-  const [w, h] = shape === "line" ? fitSize(panel, 100, 1, 0.7) : fitSize(panel, 1, shape === "ellipse" ? 1 : 0.6, 0.5);
+  const square = shape === "ellipse" || shape === "star" || shape === "triangle";
+  const [w, h] = shape === "line" ? fitSize(panel, 100, 1, 0.7) : fitSize(panel, 1, square ? 1 : 0.6, square ? 0.35 : 0.5);
   return {
     ...base(panel),
     type: "shape",
@@ -111,4 +112,10 @@ export function makeShape(panel: DielinePanel, shape: ShapeElement["shape"], hex
     strokeWidth: shape === "line" ? 0.8 : 0,
     radius: 0,
   };
+}
+
+export function makeIcon(panel: DielinePanel, iconId: string, hex: string): IconElement {
+  const [w, h] = fitSize(panel, 1, 1, 0.22);
+  const size = Math.max(8, Math.min(w, h, 30));
+  return { ...base(panel), type: "icon", iconId, w: size, h: size, color: { hex } };
 }

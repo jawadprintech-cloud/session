@@ -1,7 +1,8 @@
-import { elementCenter, uid, type DesignElement } from "../../shared/design";
+import { elementCenter, relativeTo, uid, type DesignElement } from "../../shared/design";
+import { bboxOf } from "../../shared/geom";
 import { toUnit } from "../../shared/catalog";
 import { ColorPicker } from "../components/ColorPicker";
-import { elementSize } from "../render/renderDesign";
+import { elementCorners, elementSize } from "../render/renderDesign";
 import { useElementOps, useStudio } from "./context";
 
 export function effectiveDpi(el: DesignElement): number | null {
@@ -9,7 +10,9 @@ export function effectiveDpi(el: DesignElement): number | null {
   return Math.round(Math.min(el.pxWidth / (el.w / 25.4), el.pxHeight / (el.h / 25.4)));
 }
 
-const TYPE_LABEL: Record<DesignElement["type"], string> = { image: "Image", text: "Text", qr: "QR code", shape: "Shape" };
+const TYPE_LABEL: Record<DesignElement["type"], string> = { image: "Image", text: "Text", qr: "QR code", shape: "Shape", icon: "Icon" };
+
+type Align = "left" | "hcenter" | "right" | "top" | "vcenter" | "bottom";
 
 export function Inspector() {
   const s = useStudio();
@@ -64,6 +67,20 @@ export function Inspector() {
     else ops.patch(el.id, { w: el.w * k, h: el.h * k, x: 0, y: 0, rotation });
   };
   const dpi = effectiveDpi(el);
+  /** Align the item's (rotated) bounding box to the panel's safe area. */
+  const align = (a: Align) => {
+    const area = bboxOf(panel.safe ?? panel.polygon);
+    const box = bboxOf(elementCorners(s.dieline, el));
+    const [cx, cy] = elementCenter(s.dieline, el);
+    let dx = 0, dy = 0;
+    if (a === "left") dx = area.x - box.x;
+    if (a === "right") dx = area.x + area.w - (box.x + box.w);
+    if (a === "hcenter") dx = area.x + area.w / 2 - (box.x + box.w / 2);
+    if (a === "top") dy = area.y - box.y;
+    if (a === "bottom") dy = area.y + area.h - (box.y + box.h);
+    if (a === "vcenter") dy = area.y + area.h / 2 - (box.y + box.h / 2);
+    ops.patch(el.id, relativeTo(panel, [cx + dx, cy + dy]));
+  };
   const num = (label: string, value: number, onChange: (v: number) => void, suffix: string, step = 1) => (
     <label className="mini-field">
       <span>{label}</span>
@@ -111,6 +128,12 @@ export function Inspector() {
           Print resolution: <strong>{dpi} DPI</strong> {dpi < 150 ? "– too low, may print blurry" : dpi < 250 ? "– acceptable" : "– excellent"}
         </p>
       )}
+      {el.type === "icon" && (
+        <>
+          <span className="label">Icon colour</span>
+          <ColorPicker idKey={`icon-${el.id}`} value={el.color} swatches={s.catalog.colors} onChange={(p, k) => p && ops.patch(el.id, { color: p }, k)} />
+        </>
+      )}
       {el.type === "shape" && (
         <>
           <span className="label">{el.shape === "line" ? "Line colour" : "Fill"}</span>
@@ -124,6 +147,33 @@ export function Inspector() {
           {el.shape === "rect" && num("Corner radius", el.radius, (v) => ops.patch(el.id, { radius: Math.max(0, v) }, `rad:${el.id}`), "mm")}
         </>
       )}
+      <span className="label">Align on panel (inside the safe area)</span>
+      <div className="align-row" role="group" aria-label="Align on panel">
+        {(
+          [
+            ["left", "⇤", "Align left"],
+            ["hcenter", "↔", "Centre horizontally"],
+            ["right", "⇥", "Align right"],
+            ["top", "⤒", "Align top"],
+            ["vcenter", "↕", "Centre vertically"],
+            ["bottom", "⤓", "Align bottom"],
+          ] as [Align, string, string][]
+        ).map(([a, g, t]) => (
+          <button key={a} className="btn small" title={t} aria-label={t} onClick={() => align(a)} disabled={s.readOnly || el.locked}>
+            {g}
+          </button>
+        ))}
+        {el.type !== "qr" && (
+          <>
+            <button className={`btn small ${el.flipX ? "on" : ""}`} title="Flip horizontally" aria-label="Flip horizontally" aria-pressed={!!el.flipX} onClick={() => ops.patch(el.id, { flipX: !el.flipX })} disabled={s.readOnly}>
+              ⇋
+            </button>
+            <button className={`btn small ${el.flipY ? "on" : ""}`} title="Flip vertically" aria-label="Flip vertically" aria-pressed={!!el.flipY} onClick={() => ops.patch(el.id, { flipY: !el.flipY })} disabled={s.readOnly}>
+              ⇵
+            </button>
+          </>
+        )}
+      </div>
       <div className="btn-row wrap">
         <button className="btn small" onClick={() => ops.patch(el.id, { x: 0, y: 0 })} disabled={s.readOnly}>Centre on panel</button>
         {(el.type === "image" || el.type === "shape") && (
@@ -137,6 +187,9 @@ export function Inspector() {
       <div className="row between">
         <label className="check">
           <input type="checkbox" checked={el.clip} onChange={(e) => ops.patch(el.id, { clip: e.target.checked })} disabled={s.readOnly} /> Clip to panel
+        </label>
+        <label className="check">
+          <input type="checkbox" checked={!!el.hidden} onChange={(e) => ops.patch(el.id, { hidden: e.target.checked })} disabled={s.readOnly} /> Hide
         </label>
         <label className="check">
           <input type="checkbox" checked={!!el.locked} onChange={(e) => ops.patch(el.id, { locked: e.target.checked })} disabled={s.readOnly} /> Lock

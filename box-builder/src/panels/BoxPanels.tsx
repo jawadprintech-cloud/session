@@ -20,6 +20,7 @@ function fitInto(e: DesignElement, panel: DielinePanel): DesignElement {
   return { ...e, w: e.w * k, h: e.h * k };
 }
 import { STYLE_IMAGES } from "../lib/styleImages";
+import { ContactDialog } from "../components/ContactDialog";
 
 function StyleThumb({ style }: { style: ResolvedStyle }) {
   const d = useMemo(() => {
@@ -48,6 +49,7 @@ function StyleThumb({ style }: { style: ResolvedStyle }) {
 
 export function StylePanel() {
   const s = useStudio();
+  const [contactOpen, setContactOpen] = useState(false);
   const choose = (st: ResolvedStyle) => {
     if (st.template.id === s.design.styleId || s.readOnly) return;
     const std = st.standardSizes[0];
@@ -89,6 +91,14 @@ export function StylePanel() {
     <div className="tool">
       <h2>Choose a box style</h2>
       <p className="lead">Each style comes with its own dieline. Your artwork is kept when you switch styles.</p>
+      <div className="contact-card">
+        <div>
+          <strong>Not sure which box you need?</strong>
+          <span>Our packaging experts can help you choose.</span>
+        </div>
+        <button className="btn primary" onClick={() => setContactOpen(true)}>Contact Us</button>
+      </div>
+      {contactOpen && <ContactDialog settings={s.catalog.settings} onClose={() => setContactOpen(false)} toast={s.toast} />}
       <div className="style-grid">
         {s.styles.map((st) => (
           <button

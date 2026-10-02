@@ -118,6 +118,24 @@ describe("API", () => {
     expect((await fetch(`${base}/api/projects/${"0".repeat(32)}`)).status).toBe(404);
   });
 
+  it("stores interior designs and the new element types", async () => {
+    const withInside = {
+      ...design,
+      elements: [
+        ...design.elements,
+        { id: "i1", type: "icon", panelId: "front", x: 0, y: 0, w: 20, h: 20, rotation: 0, opacity: 1, clip: true, finishes: [], iconId: "fragile", color: { hex: "#000000" }, flipX: true },
+        { id: "s1", type: "shape", panelId: "lid", x: 0, y: 0, w: 20, h: 20, rotation: 0, opacity: 1, clip: true, finishes: [], shape: "star", fill: { hex: "#ff0000" }, stroke: null, strokeWidth: 0, radius: 0, hidden: true },
+      ],
+      inside: { colors: { base: { hex: "#fcbf49" }, panels: {} }, elements: [design.elements[0]] },
+    };
+    const c = await fetch(`${base}/api/projects`, json("POST", { design: withInside }));
+    expect(c.status).toBe(201);
+    const g = await (await fetch(`${base}/api/projects/${(await c.json()).id}`)).json();
+    expect(g.design.inside.colors.base.hex).toBe("#fcbf49");
+    expect(g.design.elements.find((e: { id: string }) => e.id === "i1").flipX).toBe(true);
+    expect(g.design.elements.find((e: { id: string }) => e.id === "s1").hidden).toBe(true);
+  });
+
   it("rejects invalid designs", async () => {
     const r = await fetch(`${base}/api/projects`, json("POST", { design: { ...design, elements: [{ type: "evil" }] } }));
     expect(r.status).toBe(400);

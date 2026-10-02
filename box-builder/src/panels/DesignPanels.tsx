@@ -6,7 +6,7 @@ import { api, assetUrl } from "../lib/api";
 import { contrastRatio } from "../lib/color";
 import { ACCEPT_ATTR, prepareUpload } from "../lib/images";
 import { encodeQr, minQrSizeMm, qrMatrix, QUIET_ZONE } from "../lib/qr";
-import { makeImage, makeQr, makeShape, makeText } from "../state/factory";
+import { makeImage, makeQr, makeText } from "../state/factory";
 import { useElementOps, useStudio } from "./context";
 
 function PanelTarget() {
@@ -117,12 +117,7 @@ export function ArtworkPanel() {
           </div>
         </>
       )}
-      <h3>Shapes</h3>
-      <div className="btn-row">
-        <button className="btn" disabled={s.readOnly} onClick={() => ops.add(makeShape(s.activePanel, "rect", "#1d3557"))}>▭ Rectangle</button>
-        <button className="btn" disabled={s.readOnly} onClick={() => ops.add(makeShape(s.activePanel, "ellipse", "#e5446d"))}>◯ Circle</button>
-        <button className="btn" disabled={s.readOnly} onClick={() => ops.add(makeShape(s.activePanel, "line", "#1a1a1a"))}>― Line</button>
-      </div>
+      <p className="hint">Shapes, lines and packaging icons are in the <strong>Elements</strong> tab.</p>
     </div>
   );
 }

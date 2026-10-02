@@ -261,6 +261,7 @@ function QuoteDetail({ id, onError }: { id: string; onError: (e: unknown) => voi
             <dt>Quantity</dt><dd>{[q.requirements.quantity, ...q.requirements.extraQuantities].map((n) => n.toLocaleString()).join(" / ")}</dd>
             <dt>Material</dt><dd>{q.summary.material}</dd>
             <dt>Printing</dt><dd>{q.summary.printing}</dd>
+            <dt>Printed sides</dt><dd>{q.summary.interior ? "Exterior + interior" : "Exterior only"}</dd>
             <dt>Background</dt><dd>{describePaint(q.design.colors.base)}</dd>
             <dt>Lamination</dt><dd>{q.summary.lamination}</dd>
             <dt>Special finishes</dt><dd>{q.summary.finishes.join(", ") || "None"}</dd>
@@ -280,6 +281,7 @@ function QuoteDetail({ id, onError }: { id: string; onError: (e: unknown) => voi
             {dl(q.files.dieline, "Dieline (SVG)")}
             {dl(q.files.proof, "Proof (JPG)")}
             {dl(q.files.designJson, "Design data (JSON)")}
+            {q.files.printInside && dl(q.files.printInside, "Interior print artwork (PNG)")}
             {(q.files.masks ?? []).map((m) => dl(m.assetId, `${m.finishId} mask`))}
           </div>
           <h3>Original artwork uploads</h3>
@@ -777,6 +779,27 @@ function SettingsEditor({ cat, onChange }: { cat: Catalog; onChange: (c: Catalog
           <label className="field inline">
             <span>Allow custom sizes</span>
             <input type="checkbox" checked={s.allowCustomSizes} onChange={(e) => set({ allowCustomSizes: e.target.checked })} />
+          </label>
+          <label className="field">
+            <span>Contact email</span>
+            <input className="input" type="email" value={s.contactEmail} onChange={(e) => set({ contactEmail: e.target.value })} />
+          </label>
+          <label className="field">
+            <span>Contact phone</span>
+            <input className="input" value={s.contactPhone} onChange={(e) => set({ contactPhone: e.target.value })} />
+          </label>
+          <label className="field">
+            <span>WhatsApp number (international format)</span>
+            <input className="input" placeholder="+44 7700 900123" value={s.contactWhatsapp} onChange={(e) => set({ contactWhatsapp: e.target.value })} />
+          </label>
+          <label className="field">
+            <span>Contact page URL</span>
+            <input className="input" placeholder="https://yourcompany.com/contact" value={s.contactUrl} onChange={(e) => set({ contactUrl: e.target.value })} />
+          </label>
+          <label className="field">
+            <span>Opening hours</span>
+            <input className="input" value={s.contactHours} onChange={(e) => set({ contactHours: e.target.value })} />
+            <small>Shown by the Contact Us button in the builder. Empty fields are hidden.</small>
           </label>
           <label className="field full">
             <span>Quote form introduction</span>

@@ -27,6 +27,10 @@ interface ElementBase {
   /** Area finish ids (spot UV, foil, emboss…). */
   finishes: string[];
   locked?: boolean;
+  /** Hidden items are kept but neither shown nor printed. */
+  hidden?: boolean;
+  flipX?: boolean;
+  flipY?: boolean;
 }
 
 export interface ImageElement extends ElementBase {
@@ -75,14 +79,32 @@ export interface QrElement extends ElementBase {
 
 export interface ShapeElement extends ElementBase {
   type: "shape";
-  shape: "rect" | "ellipse" | "line";
+  shape: "rect" | "ellipse" | "line" | "triangle" | "star";
   fill: Paint | null;
   stroke: Paint | null;
   strokeWidth: number;
   radius: number;
 }
 
-export type DesignElement = ImageElement | TextElement | QrElement | ShapeElement;
+/** Vector packaging symbol / icon from the built-in library (see src/lib/icons.ts). */
+export interface IconElement extends ElementBase {
+  type: "icon";
+  iconId: string;
+  color: Paint;
+}
+
+export type DesignElement = ImageElement | TextElement | QrElement | ShapeElement | IconElement;
+
+export type Side = "outside" | "inside";
+
+/** Background colours + artwork for one face of the board. */
+export interface Surface {
+  colors: {
+    base: Paint | null;
+    panels: Record<string, Paint | null>;
+  };
+  elements: DesignElement[];
+}
 
 export interface Design {
   version: 1;
@@ -101,6 +123,31 @@ export interface Design {
   };
   laminationId: string | null;
   elements: DesignElement[];
+  /** Interior print. Absent = unprinted inside. Positions are in the inside (mirrored) sheet frame. */
+  inside?: Surface;
+}
+
+export const EMPTY_INSIDE: Surface = { colors: { base: null, panels: {} }, elements: [] };
+
+/**
+ * A design seen through one face. The outside view is the design itself; the inside view swaps in
+ * the interior colours and artwork, so every editor tool works unchanged on either face.
+ */
+export function surfaceView(design: Design, side: Side): Design {
+  if (side === "outside") return design;
+  const inside = design.inside ?? EMPTY_INSIDE;
+  return { ...design, colors: inside.colors, elements: inside.elements };
+}
+
+/** Write an edited view back into the full design. */
+export function applySurfaceView(full: Design, side: Side, view: Design): Design {
+  if (side === "outside") return { ...view, inside: full.inside };
+  return { ...view, colors: full.colors, elements: full.elements, inside: { colors: view.colors, elements: view.elements } };
+}
+
+export function hasInsidePrint(design: Design): boolean {
+  const i = design.inside;
+  return !!i && (i.elements.some((e) => !e.hidden) || !!i.colors.base || Object.values(i.colors.panels).some(Boolean));
 }
 
 export const PT_TO_MM = 25.4 / 72;

@@ -76,6 +76,12 @@ export interface CatalogSettings {
   quantityPresets: number[];
   minQuantity: number;
   quoteIntro: string;
+  /** Contact Us details (any left empty are hidden). */
+  contactEmail: string;
+  contactPhone: string;
+  contactWhatsapp: string;
+  contactUrl: string;
+  contactHours: string;
 }
 
 export interface Catalog {
@@ -121,6 +127,12 @@ export const DEFAULT_CATALOG: Catalog = {
     quantityPresets: [100, 250, 500, 1000, 2500, 5000, 10000],
     minQuantity: 50,
     quoteIntro: "Our packaging specialists will review your design and send a custom quotation, usually within one business day.",
+    // Placeholders: set your real details in Admin → Settings.
+    contactEmail: "sales@yourcompany.com",
+    contactPhone: "+1 555 010 0000",
+    contactWhatsapp: "",
+    contactUrl: "",
+    contactHours: "Mon–Fri, 9am–6pm",
   },
   styles: BUILTIN_TEMPLATES.map((t, i) => ({ id: t.id, enabled: true, order: i })),
   materials: [

@@ -138,6 +138,7 @@ export interface AdminQuote {
     designJson: string;
     mockups: string[];
     masks?: { finishId: string; assetId: string }[];
+    printInside?: string;
   };
   artwork: { assetId: string; originalAssetId: string; fileName: string; panelId: string }[];
   summary: {
@@ -148,5 +149,6 @@ export interface AdminQuote {
     lamination: string;
     finishes: string[];
     elementCount: number;
+    interior?: boolean;
   };
 }

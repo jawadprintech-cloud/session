@@ -4,7 +4,8 @@ import type { Dieline } from "../../shared/dieline";
 import { elementCenter, panelPaint, relativeTo, type Design, type DesignElement } from "../../shared/design";
 import { luminance } from "../lib/color";
 import { pointInPolygon, type Pt } from "../../shared/geom";
-import { elementSize, renderDesign, type RenderSources } from "../render/renderDesign";
+import { elementCorners, elementSize, renderDesign, type RenderSources } from "../render/renderDesign";
+import { bboxOf } from "../../shared/geom";
 
 export interface Guides {
   cut: boolean;
@@ -26,6 +27,8 @@ interface Props {
   onSelectElement: (id: string | null) => void;
   onSelectPanel: (id: string) => void;
   onChangeElement: (id: string, patch: Partial<DesignElement>, mergeKey: string) => void;
+  /** Quick actions shown next to the selected item (never on top of it). */
+  selectionActions?: React.ReactNode;
 }
 
 type Gesture =
@@ -46,10 +49,32 @@ export function DielineEditor(p: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const svgRef = useRef<SVGSVGElement>(null);
   const [vp, setVp] = useState({ w: 800, h: 600 });
-  const [zoom, setZoom] = useState(1);
-  const [pan, setPan] = useState<Pt>([0, 0]);
+  // Zoom/pan live in a ref as well as state, so rapid wheel events and button clicks
+  // always build on the latest view instead of a stale render (which made zoom jump).
+  const [view, setViewState] = useState<{ zoom: number; pan: Pt }>({ zoom: 1, pan: [0, 0] });
+  const viewRef = useRef(view);
+  const geomRef = useRef({ fit: 1, vp: { w: 800, h: 600 }, W: 1, H: 1 });
+  const setView = useCallback((v: { zoom: number; pan: Pt }) => {
+    // Keep at least part of the sheet on screen so it can't be lost off the edge.
+    const g = geomRef.current;
+    const s = g.fit * v.zoom;
+    const mx = (g.vp.w + g.W * s) / 2 - 60, my = (g.vp.h + g.H * s) / 2 - 60;
+    const pan: Pt = [Math.max(-mx, Math.min(mx, v.pan[0])), Math.max(-my, Math.min(my, v.pan[1]))];
+    viewRef.current = { zoom: v.zoom, pan };
+    setViewState(viewRef.current);
+  }, []);
+  const setPan = useCallback((fn: Pt | ((p: Pt) => Pt)) => {
+    const cur = viewRef.current;
+    setView({ zoom: cur.zoom, pan: typeof fn === "function" ? fn(cur.pan) : fn });
+  }, [setView]);
+  const zoom = view.zoom, pan = view.pan;
+  const anim = useRef(0);
+  /** Where a running button-zoom animation is heading, so quick repeated clicks add up. */
+  const animTarget = useRef<number | null>(null);
   const [snap, setSnap] = useState<{ x?: number; y?: number } | null>(null);
   const gesture = useRef<Gesture | null>(null);
+  // True while an item is being moved/resized/rotated (hides the floating action bar).
+  const [dragging, setDragging] = useState(false);
   const pointers = useRef(new Map<number, Pt>());
   const dl = p.dieline;
 
@@ -63,15 +88,23 @@ export function DielineEditor(p: Props) {
 
   // Refit when the style changes.
   useEffect(() => {
-    setZoom(1);
-    setPan([0, 0]);
-  }, [dl.templateId]);
+    cancelAnimationFrame(anim.current);
+    setView({ zoom: 1, pan: [0, 0] });
+  }, [dl.templateId, setView]);
 
   const fit = Math.max(0.05, Math.min((vp.w - 48) / dl.width, (vp.h - 48) / dl.height));
   const scale = fit * zoom;
   const stageW = dl.width * scale, stageH = dl.height * scale;
   const left = (vp.w - stageW) / 2 + pan[0];
   const top = (vp.h - stageH) / 2 + pan[1];
+  geomRef.current = { fit, vp, W: dl.width, H: dl.height };
+
+  // Re-render the sheet at full sharpness only once zooming pauses (CSS scaling covers the gap).
+  const [renderScale, setRenderScale] = useState(scale);
+  useEffect(() => {
+    const t = setTimeout(() => setRenderScale(scale), 140);
+    return () => clearTimeout(t);
+  }, [scale]);
 
   // ------------------------------------------------------------- canvas
   const raf = useRef(0);
@@ -81,7 +114,7 @@ export function DielineEditor(p: Props) {
       const c = canvasRef.current;
       if (!c) return;
       const dpr = Math.min(window.devicePixelRatio || 1, 2);
-      let px = scale * dpr;
+      let px = renderScale * dpr;
       const pixels = dl.width * dl.height * px * px;
       if (pixels > MAX_CANVAS_PX) px *= Math.sqrt(MAX_CANVAS_PX / pixels);
       const W = Math.max(1, Math.round(dl.width * px)), H = Math.max(1, Math.round(dl.height * px));
@@ -92,7 +125,7 @@ export function DielineEditor(p: Props) {
       renderDesign(c.getContext("2d")!, dl, p.design, p.catalog, p.sources, { pxPerMm: px, mode: "color", board: true, editor: true });
     });
     return () => cancelAnimationFrame(raf.current);
-  }, [dl, p.design, p.catalog, p.sources, p.version, scale]);
+  }, [dl, p.design, p.catalog, p.sources, p.version, renderScale]);
 
   // ------------------------------------------------------------- helpers
   const toMm = useCallback(
@@ -103,33 +136,81 @@ export function DielineEditor(p: Props) {
     [dl.width, dl.height],
   );
 
+  /** Zoom to `newZoom`, keeping the sheet point under (clientX, clientY) fixed. */
   const zoomAt = useCallback(
     (newZoom: number, clientX: number, clientY: number) => {
+      const g = geomRef.current;
+      const v = viewRef.current;
       const z = Math.max(0.25, Math.min(12, newZoom));
       const r = viewportRef.current!.getBoundingClientRect();
       const mx = clientX - r.left, my = clientY - r.top;
-      const s0 = fit * zoom, s1 = fit * z;
-      const mmX = (mx - left) / s0, mmY = (my - top) / s0;
-      const left1 = mx - mmX * s1, top1 = my - mmY * s1;
-      setZoom(z);
-      setPan([left1 - (vp.w - dl.width * s1) / 2, top1 - (vp.h - dl.height * s1) / 2]);
+      const s0 = g.fit * v.zoom, s1 = g.fit * z;
+      const left0 = (g.vp.w - g.W * s0) / 2 + v.pan[0], top0 = (g.vp.h - g.H * s0) / 2 + v.pan[1];
+      const mmX = (mx - left0) / s0, mmY = (my - top0) / s0;
+      setView({ zoom: z, pan: [mx - mmX * s1 - (g.vp.w - g.W * s1) / 2, my - mmY * s1 - (g.vp.h - g.H * s1) / 2] });
     },
-    [fit, zoom, left, top, vp, dl.width, dl.height],
+    [setView],
   );
 
+  /** Smoothly animate to a zoom level around a screen point (used by the +/- buttons). */
+  const animateZoom = useCallback(
+    (target: number, clientX: number, clientY: number) => {
+      cancelAnimationFrame(anim.current);
+      const from = viewRef.current.zoom;
+      const to = Math.max(0.25, Math.min(12, target));
+      animTarget.current = to;
+      const t0 = performance.now();
+      const step = (now: number) => {
+        const t = Math.min(1, (now - t0) / 180);
+        const e = t * (2 - t);
+        zoomAt(from * Math.pow(to / from, e), clientX, clientY);
+        if (t < 1) anim.current = requestAnimationFrame(step);
+        else animTarget.current = null;
+      };
+      anim.current = requestAnimationFrame(step);
+    },
+    [zoomAt],
+  );
+
+  const fitView = useCallback(() => {
+    cancelAnimationFrame(anim.current);
+    animTarget.current = null;
+    const from = { ...viewRef.current };
+    const t0 = performance.now();
+    const step = (now: number) => {
+      const t = Math.min(1, (now - t0) / 200);
+      const e = t * (2 - t);
+      setView({ zoom: from.zoom * Math.pow(1 / from.zoom, e), pan: [from.pan[0] * (1 - e), from.pan[1] * (1 - e)] });
+      if (t < 1) anim.current = requestAnimationFrame(step);
+    };
+    anim.current = requestAnimationFrame(step);
+  }, [setView]);
+
+  // One wheel listener for the editor's lifetime; it reads the live view from refs.
   useEffect(() => {
     const el = viewportRef.current!;
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
-      if (e.ctrlKey || e.metaKey || Math.abs(e.deltaY) >= Math.abs(e.deltaX)) {
-        zoomAt(zoom * Math.exp(-e.deltaY * (e.ctrlKey ? 0.01 : 0.0015)), e.clientX, e.clientY);
+      cancelAnimationFrame(anim.current);
+      animTarget.current = null;
+      const unit = e.deltaMode === 1 ? 33 : e.deltaMode === 2 ? 400 : 1; // lines/pages → pixels
+      const dy = e.deltaY * unit, dx = e.deltaX * unit;
+      if (e.ctrlKey || e.metaKey) {
+        // Trackpad pinch: fine-grained.
+        zoomAt(viewRef.current.zoom * Math.exp(-Math.max(-60, Math.min(60, dy)) * 0.01), e.clientX, e.clientY);
+      } else if (Math.abs(dy) >= Math.abs(dx)) {
+        // Mouse wheel: one notch ≈ 12%, never more per event.
+        zoomAt(viewRef.current.zoom * Math.exp(-Math.max(-100, Math.min(100, dy)) * 0.0012), e.clientX, e.clientY);
       } else {
-        setPan(([x, y]) => [x - e.deltaX, y - e.deltaY]);
+        setPan(([x, y]) => [x - dx, y - dy]);
       }
     };
     el.addEventListener("wheel", onWheel, { passive: false });
-    return () => el.removeEventListener("wheel", onWheel);
-  }, [zoomAt, zoom]);
+    return () => {
+      el.removeEventListener("wheel", onWheel);
+      cancelAnimationFrame(anim.current);
+    };
+  }, [zoomAt, setPan]);
 
   const elements = p.design.elements;
   const selected = elements.find((e) => e.id === p.selectedId) ?? null;
@@ -144,7 +225,7 @@ export function DielineEditor(p: Props) {
   const startPinchIfNeeded = () => {
     if (pointers.current.size !== 2) return false;
     const [a, b] = [...pointers.current.values()];
-    gesture.current = { kind: "pinch", d0: Math.hypot(a[0] - b[0], a[1] - b[1]), zoom0: zoom, mid: [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2] };
+    gesture.current = { kind: "pinch", d0: Math.hypot(a[0] - b[0], a[1] - b[1]), zoom0: viewRef.current.zoom, mid: [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2] };
     return true;
   };
 
@@ -190,7 +271,7 @@ export function DielineEditor(p: Props) {
       gesture.current = { kind: "rotate", id: selected.id, center: elementCenter(dl, selected) };
       return;
     }
-    gesture.current = { kind: "pan", startX: e.clientX, startY: e.clientY, pan0: pan, moved: false, panelId: role === "panel" ? id : null };
+    gesture.current = { kind: "pan", startX: e.clientX, startY: e.clientY, pan0: viewRef.current.pan, moved: false, panelId: role === "panel" ? id : null };
   };
 
   const onPointerMove = (e: React.PointerEvent) => {
@@ -214,10 +295,12 @@ export function DielineEditor(p: Props) {
     const el = elements.find((x) => x.id === g.id);
     if (!el) return;
     const pt = toMm(e.clientX, e.clientY);
+    if (g.kind !== "move" || g.moved) setDragging(true);
     if (g.kind === "move") {
       let c: Pt = [g.center0[0] + pt[0] - g.start[0], g.center0[1] + pt[1] - g.start[1]];
       if (!g.moved && Math.hypot(pt[0] - g.start[0], pt[1] - g.start[1]) * scale < 3) return;
       g.moved = true;
+      setDragging(true);
       const panelId = panelAt(c) ?? el.panelId;
       const panel = dl.byId[panelId];
       // Snap to the panel's centre lines.
@@ -282,6 +365,7 @@ export function DielineEditor(p: Props) {
       if (g.panelId) p.onSelectPanel(g.panelId);
     }
     gesture.current = null;
+    setDragging(false);
     setSnap(null);
   };
 
@@ -299,7 +383,10 @@ export function DielineEditor(p: Props) {
   const hs = 11 / scale; // handle size in mm
   const active = p.activePanelId ? dl.byId[p.activePanelId] : null;
 
-  const zoomBy = (f: number) => zoomAt(zoom * f, (viewportRef.current!.getBoundingClientRect().left + vp.w / 2), viewportRef.current!.getBoundingClientRect().top + vp.h / 2);
+  const zoomBy = (f: number) => {
+    const r = viewportRef.current!.getBoundingClientRect();
+    animateZoom((animTarget.current ?? viewRef.current.zoom) * f, r.left + r.width / 2, r.top + r.height / 2);
+  };
 
   return (
     <div className="editor">
@@ -360,7 +447,7 @@ export function DielineEditor(p: Props) {
                   </text>
                 );
               })}
-            {elements.map((el) => {
+            {elements.filter((el) => !el.hidden).map((el) => {
               const [w, h] = elementSize(el);
               const [cx, cy] = elementCenter(dl, el);
               return (
@@ -438,9 +525,22 @@ export function DielineEditor(p: Props) {
           </svg>
         </div>
       </div>
+      {selected && p.selectionActions && !dragging && (() => {
+        // Float the action bar just above the selection (or below it when there is no room).
+        const bb = bboxOf(elementCorners(dl, selected));
+        const cx = left + (bb.x + bb.w / 2) * scale;
+        const above = top + bb.y * scale - hs * 2.2 * scale - 46;
+        const y = above > 6 ? above : Math.min(vp.h - 44, top + (bb.y + bb.h) * scale + 12);
+        const x = Math.max(110, Math.min(vp.w - 110, cx));
+        return (
+          <div className="sel-float" style={{ left: x, top: y }}>
+            {p.selectionActions}
+          </div>
+        );
+      })()}
       <div className="editor-zoom">
         <button className="icon-btn" onClick={() => zoomBy(1 / 1.25)} aria-label="Zoom out">−</button>
-        <button className="zoom-label" onClick={() => (setZoom(1), setPan([0, 0]))} title="Fit to screen">
+        <button className="zoom-label" onClick={fitView} title="Fit to screen">
           {Math.round(zoom * 100)}%
         </button>
         <button className="icon-btn" onClick={() => zoomBy(1.25)} aria-label="Zoom in">+</button>

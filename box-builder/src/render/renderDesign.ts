@@ -4,6 +4,7 @@ import { elementCenter, panelPaint, type Design, type DesignElement, type ImageE
 import { signedArea, type Pt } from "../../shared/geom";
 import { qrMatrix, QUIET_ZONE } from "../lib/qr";
 import { drawText, layoutText } from "./text";
+import { iconDef, iconPaths } from "../lib/icons";
 
 export interface RenderSources {
   /** Drawable for an image element, or null while loading. */
@@ -29,6 +30,8 @@ export interface RenderOptions {
   editor?: boolean;
   /** For mode "mask": which finish. */
   maskFinishId?: string;
+  /** Unprinted board colour (defaults to the material's outside colour; the interior uses its inside colour). */
+  boardColor?: string;
 }
 
 interface PanelPaths {
@@ -216,9 +219,42 @@ function drawElementBody(
       ctx.restore();
       return;
     }
+    case "icon": {
+      // Icons live on a 24×24 grid centred on the element.
+      const def = iconDef(el.iconId);
+      ctx.save();
+      ctx.scale(w / 24, h / 24);
+      ctx.translate(-12, -12);
+      ctx.lineWidth = 2;
+      ctx.lineCap = "round";
+      ctx.lineJoin = "round";
+      ctx.strokeStyle = fill ?? el.color.hex;
+      ctx.fillStyle = fill ?? el.color.hex;
+      for (const path of iconPaths(el.iconId)) {
+        if (def?.solid) ctx.fill(path);
+        ctx.stroke(path);
+      }
+      ctx.restore();
+      return;
+    }
     case "shape": {
       ctx.beginPath();
       if (el.shape === "ellipse") ctx.ellipse(0, 0, w / 2, h / 2, 0, 0, Math.PI * 2);
+      else if (el.shape === "triangle") {
+        ctx.moveTo(0, -h / 2);
+        ctx.lineTo(w / 2, h / 2);
+        ctx.lineTo(-w / 2, h / 2);
+        ctx.closePath();
+      } else if (el.shape === "star") {
+        for (let i = 0; i < 10; i++) {
+          const a = -Math.PI / 2 + (i * Math.PI) / 5;
+          const r = i % 2 ? 0.4 : 1;
+          const x = (Math.cos(a) * r * w) / 2, y = (Math.sin(a) * r * h) / 2 + h * 0.05;
+          if (i) ctx.lineTo(x, y);
+          else ctx.moveTo(x, y);
+        }
+        ctx.closePath();
+      }
       else if (el.shape === "line") ctx.rect(-w / 2, -el.strokeWidth / 2, w, el.strokeWidth);
       else if (el.radius > 0) ctx.roundRect(-w / 2, -h / 2, w, h, Math.min(el.radius, w / 2, h / 2));
       else ctx.rect(-w / 2, -h / 2, w, h);
@@ -273,7 +309,7 @@ export function renderDesign(
     ctx.fillStyle = lam?.effect === "gloss" ? "#ffffff" : "#000000";
     ctx.fillRect(0, 0, dl.width, dl.height);
   } else if (o.mode === "color" && o.board && material) {
-    ctx.fillStyle = material.boardColor;
+    ctx.fillStyle = o.boardColor ?? material.boardColor;
     for (const p of dl.panels) ctx.fill(pp.poly.get(p.id)!);
   }
 
@@ -291,6 +327,7 @@ export function renderDesign(
   }
 
   for (const el of design.elements) {
+    if (el.hidden) continue;
     const panel = dl.byId[el.panelId];
     let fill: string | CanvasGradient | null = null;
     if (o.mode === "finish") {
@@ -310,6 +347,7 @@ export function renderDesign(
     const [cx, cy] = elementCenter(dl, el);
     ctx.translate(cx, cy);
     ctx.rotate((el.rotation * Math.PI) / 180);
+    if (el.flipX || el.flipY) ctx.scale(el.flipX ? -1 : 1, el.flipY ? -1 : 1);
     ctx.globalAlpha = o.mode === "color" ? el.opacity : 1;
     if (o.mode === "color") {
       const foil = foilColor(el, cat);

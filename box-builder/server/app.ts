@@ -52,6 +52,7 @@ export interface QuoteRecord {
     lamination: string;
     finishes: string[];
     elementCount: number;
+    interior: boolean;
   };
 }
 
@@ -212,7 +213,7 @@ export async function createApp(opts: AppOptions) {
     const tpl = cat.templates.find((t) => t.id === q.design.styleId);
     const style = cat.styles.find((s) => s.id === q.design.styleId);
     const dims = (tpl?.dimensions ?? []).map((d) => `${d.label} ${q.design.dims[d.key] ?? "?"}`).join(" × ");
-    const finishIds = new Set(q.design.elements.flatMap((e) => e.finishes));
+    const finishIds = new Set([...q.design.elements, ...(q.design.inside?.elements ?? [])].flatMap((e) => e.finishes));
     const fin = (id: string | null) => cat.finishes.find((f) => f.id === id)?.name;
     return {
       styleName: style?.name || tpl?.name || q.design.styleId,
@@ -221,7 +222,8 @@ export async function createApp(opts: AppOptions) {
       printing: cat.printOptions.find((p) => p.id === q.requirements.printOptionId)?.name ?? q.requirements.printOptionId,
       lamination: fin(q.design.laminationId) ?? "None",
       finishes: [...finishIds].map((id) => fin(id) ?? id),
-      elementCount: q.design.elements.length,
+      elementCount: q.design.elements.length + (q.design.inside?.elements.length ?? 0),
+      interior: !!q.design.inside && (q.design.inside.elements.length > 0 || !!q.design.inside.colors.base || Object.values(q.design.inside.colors.panels).some(Boolean)),
     };
   }
 
@@ -354,7 +356,7 @@ export async function createApp(opts: AppOptions) {
     if (!cat.templates.some((t) => t.id === q.design.styleId)) throw new HttpError(400, "Unknown box style.");
     if (q.requirements.quantity < cat.settings.minQuantity)
       throw new HttpError(400, `Minimum order quantity is ${cat.settings.minQuantity}.`);
-    const images = q.design.elements.filter((e) => e.type === "image");
+    const images = [...q.design.elements, ...(q.design.inside?.elements ?? [])].filter((e) => e.type === "image");
     await ensureAssets([
       q.files.printFile,
       q.files.proof,
@@ -362,6 +364,7 @@ export async function createApp(opts: AppOptions) {
       q.files.designJson,
       ...q.files.mockups,
       ...q.files.masks.map((m) => m.assetId),
+      ...(q.files.printInside ? [q.files.printInside] : []),
       ...images.flatMap((e) => [e.assetId, e.originalAssetId]),
     ]);
     const now = new Date().toISOString();

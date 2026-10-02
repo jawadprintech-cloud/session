@@ -446,4 +446,40 @@ function assignUpright(dl: Dieline) {
   }
 }
 
+const mirrorCache = new WeakMap<Dieline, Dieline>();
+
+/**
+ * The same dieline seen from the inside (the reverse of the sheet): mirrored left-to-right.
+ * Interior artwork is positioned on this frame, so it reads correctly from inside the box.
+ */
+export function mirrorDieline(dl: Dieline): Dieline {
+  const hit = mirrorCache.get(dl);
+  if (hit) return hit;
+  const W = dl.width;
+  const m = ([u, v]: Pt): Pt => [W - u, v];
+  const mr = (r: Rect): Rect => ({ x: W - r.x - r.w, y: r.y, w: r.w, h: r.h });
+  const panels = dl.panels.map((p) => ({
+    ...p,
+    polygon: p.polygon.map(m),
+    frame: mr(p.frame),
+    bbox: mr(p.bbox),
+    center: m(p.center),
+    hinge: p.hinge ? ([m(p.hinge[0]), m(p.hinge[1])] as Seg) : undefined,
+    outward: p.outward ? ([-p.outward[0], p.outward[1]] as Pt) : undefined,
+    dilated: p.dilated.map(m),
+    safe: p.safe ? p.safe.map(m) : null,
+    upright: (360 - p.upright) % 360,
+  }));
+  const out: Dieline = {
+    ...dl,
+    panels,
+    byId: Object.fromEntries(panels.map((p) => [p.id, p])),
+    pieces: dl.pieces.map((pc) => ({ ...pc, bbox: mr(pc.bbox) })),
+    cutLines: dl.cutLines.map(([a, b]) => [m(a), m(b)] as Seg),
+    foldLines: dl.foldLines.map(([a, b]) => [m(a), m(b)] as Seg),
+  };
+  mirrorCache.set(dl, out);
+  return out;
+}
+
 export { ExprError };

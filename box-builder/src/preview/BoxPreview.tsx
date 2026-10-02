@@ -3,8 +3,8 @@ import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
 import type { ResolvedCatalog } from "../../shared/catalog";
-import type { Design } from "../../shared/design";
-import type { Dieline, DielinePanel } from "../../shared/dieline";
+import { surfaceView, type Design, type Side } from "../../shared/design";
+import { mirrorDieline, type Dieline, type DielinePanel } from "../../shared/dieline";
 import { deformPoint, flat3, foldFromOpenAmount, foldedBounds, meshMatrix, panelTransforms, type FoldState } from "../../shared/fold";
 import { applyPoint, type Vec3 } from "../../shared/mat4";
 import { finishById, renderDesign, type RenderSources } from "../render/renderDesign";
@@ -24,6 +24,8 @@ interface Props {
   /** Bumped when images/fonts finish loading. */
   version: number;
   onPickPanel?: (panelId: string) => void;
+  /** Face being edited; switching to the interior opens the lid so the inside is visible. */
+  side?: Side;
 }
 
 const VIEW_DIRS: Record<ViewName, Vec3> = {
@@ -171,6 +173,8 @@ export const BoxPreview = forwardRef<BoxPreviewHandle, Props>(function BoxPrevie
     colorCanvas: HTMLCanvasElement;
     finishCanvas: HTMLCanvasElement;
     coatCanvas: HTMLCanvasElement;
+    insideCanvas: HTMLCanvasElement;
+    insideTex: THREE.CanvasTexture | null;
     coatTex: THREE.CanvasTexture | null;
     colorTex: THREE.CanvasTexture | null;
     finishTex: THREE.CanvasTexture | null;
@@ -184,7 +188,7 @@ export const BoxPreview = forwardRef<BoxPreviewHandle, Props>(function BoxPrevie
     onT: (t: number, done: boolean) => void;
     dirty: boolean;
     texDirty: boolean;
-    camAnim: { from: THREE.Vector3; to: THREE.Vector3; t0: number } | null;
+    camAnim: { from: THREE.Vector3; to: THREE.Vector3; t0: number; dur?: number } | null;
     radius: number;
     raf: number;
     /** Shaders compiled; nothing is drawn before this so the page never freezes on a half-built frame. */
@@ -264,6 +268,8 @@ export const BoxPreview = forwardRef<BoxPreviewHandle, Props>(function BoxPrevie
       colorCanvas: document.createElement("canvas"),
       finishCanvas: document.createElement("canvas"),
       coatCanvas: document.createElement("canvas"),
+      insideCanvas: document.createElement("canvas"),
+      insideTex: null,
       coatTex: null,
       colorTex: null,
       finishTex: null,
@@ -347,9 +353,14 @@ export const BoxPreview = forwardRef<BoxPreviewHandle, Props>(function BoxPrevie
       }
       if (e.texDirty) updateTextures();
       if (e.camAnim) {
-        const t = Math.min(1, (now - e.camAnim.t0) / 550);
+        // Orbit around the box (rotate direction, ease distance) so view changes never cut through it.
+        const a = e.camAnim;
+        const t = Math.min(1, (now - a.t0) / (a.dur ?? 550));
         const s = t * t * (3 - 2 * t);
-        camera.position.copy(e.camAnim.from).lerp(e.camAnim.to, s).setLength(e.camAnim.from.length() + (e.camAnim.to.length() - e.camAnim.from.length()) * s);
+        const d0 = a.from.clone().normalize(), d1 = a.to.clone().normalize();
+        const q = new THREE.Quaternion().slerp(new THREE.Quaternion().setFromUnitVectors(d0, d1), s);
+        const len = a.from.length() + (a.to.length() - a.from.length()) * s;
+        camera.position.copy(d0.applyQuaternion(q).multiplyScalar(len));
         if (t >= 1) e.camAnim = null;
         e.dirty = true;
       }
@@ -437,19 +448,28 @@ export const BoxPreview = forwardRef<BoxPreviewHandle, Props>(function BoxPrevie
     const max = Math.min(TEX_MAX, e.renderer.capabilities.maxTextureSize);
     const px = Math.min(max / dl.width, max / dl.height, 8);
     const W = Math.round(dl.width * px), H = Math.round(dl.height * px);
-    for (const c of [e.colorCanvas, e.finishCanvas, e.coatCanvas]) {
+    for (const c of [e.colorCanvas, e.finishCanvas, e.coatCanvas, e.insideCanvas]) {
       if (c.width !== W || c.height !== H) {
         c.width = W;
         c.height = H;
         e.colorTex?.dispose();
         e.finishTex?.dispose();
         e.coatTex?.dispose();
+        e.insideTex?.dispose();
         e.colorTex = null;
       }
     }
     renderDesign(e.colorCanvas.getContext("2d")!, dl, p.design, p.catalog, p.sources, { pxPerMm: px, mode: "color", board: true });
     renderDesign(e.finishCanvas.getContext("2d")!, dl, p.design, p.catalog, p.sources, { pxPerMm: px, mode: "finish", board: true });
     renderDesign(e.coatCanvas.getContext("2d")!, dl, p.design, p.catalog, p.sources, { pxPerMm: px, mode: "coat", board: true });
+    // Interior: rendered on the mirrored (inside) frame and mapped back with a mirrored texture.
+    const material = p.catalog.materials.find((m) => m.id === p.design.materialId) ?? p.catalog.materials[0];
+    renderDesign(e.insideCanvas.getContext("2d")!, mirrorDieline(dl), surfaceView(p.design, "inside"), p.catalog, p.sources, {
+      pxPerMm: px,
+      mode: "color",
+      board: true,
+      boardColor: material?.insideColor,
+    });
     if (!e.colorTex) {
       e.colorTex = new THREE.CanvasTexture(e.colorCanvas);
       e.colorTex.colorSpace = THREE.SRGBColorSpace;
@@ -464,10 +484,19 @@ export const BoxPreview = forwardRef<BoxPreviewHandle, Props>(function BoxPrevie
       e.coatTex.colorSpace = THREE.NoColorSpace;
       e.outerMat.clearcoatMap = e.coatTex;
       e.outerMat.needsUpdate = true;
+      e.insideTex = new THREE.CanvasTexture(e.insideCanvas);
+      e.insideTex.colorSpace = THREE.SRGBColorSpace;
+      e.insideTex.anisotropy = e.renderer.capabilities.getMaxAnisotropy();
+      e.insideTex.wrapS = THREE.RepeatWrapping;
+      e.insideTex.repeat.set(-1, 1);
+      e.insideTex.offset.set(1, 0);
+      e.innerMat.map = e.insideTex;
+      e.innerMat.needsUpdate = true;
     } else {
       e.colorTex.needsUpdate = true;
       e.finishTex!.needsUpdate = true;
       e.coatTex!.needsUpdate = true;
+      e.insideTex!.needsUpdate = true;
     }
     // Lamination look.
     const lam = finishById(p.catalog, p.design.laminationId)?.effect;
@@ -476,8 +505,7 @@ export const BoxPreview = forwardRef<BoxPreviewHandle, Props>(function BoxPrevie
     e.outerMat.sheenRoughness = 0.85;
     e.outerMat.sheenColor.set(0xc9ced6);
     e.outerMat.bumpScale = 7;
-    const mat = p.catalog.materials.find((m) => m.id === p.design.materialId) ?? p.catalog.materials[0];
-    e.innerMat.color.set(mat?.insideColor ?? "#eeeeee");
+    e.innerMat.color.set(0xffffff);
     e.dirty = true;
   }
 
@@ -520,7 +548,10 @@ export const BoxPreview = forwardRef<BoxPreviewHandle, Props>(function BoxPrevie
     e.controls.maxDistance = Math.max(dl.width, dl.height) * 3 + dist;
     if (!prev || prev.templateId !== dl.templateId || Math.abs(radius - e.radius) / e.radius > 0.25) {
       const dir = prev?.templateId === dl.templateId ? e.camera.position.clone().normalize() : new THREE.Vector3(...VIEW_DIRS.hero).normalize();
-      e.camera.position.copy(dir.multiplyScalar(dist));
+      const to = dir.multiplyScalar(dist);
+      // Glide to the new framing instead of jumping (first load snaps).
+      if (prev && e.ready) e.camAnim = { from: e.camera.position.clone(), to, t0: performance.now() };
+      else e.camera.position.copy(to);
       e.controls.target.set(0, 0, 0);
     }
     e.radius = radius;
@@ -565,6 +596,24 @@ export const BoxPreview = forwardRef<BoxPreviewHandle, Props>(function BoxPrevie
   useEffect(() => {
     if (eng.current) eng.current.controls.autoRotate = spin;
   }, [spin]);
+
+  // Designing the interior: open the box so the inside faces are visible.
+  useEffect(() => {
+    const e = eng.current;
+    if (!e || props.side !== "inside") return;
+    const target = props.dieline.hasOpenState ? 0.3 : 0.55;
+    if (e.t < target - 0.01) playTo(target);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [props.side]);
+
+  /** Smooth zoom for the +/- buttons (factor < 1 zooms in). */
+  const zoomBy = (factor: number) => {
+    const e = eng.current;
+    if (!e) return;
+    const from = e.camera.position.clone();
+    const len = Math.max(e.controls.minDistance, Math.min(e.controls.maxDistance, from.length() * factor));
+    e.camAnim = { from, to: from.clone().setLength(len), t0: performance.now(), dur: 220 };
+  };
 
   const viewDistance = () => {
     const e = eng.current!;
@@ -662,9 +711,13 @@ export const BoxPreview = forwardRef<BoxPreviewHandle, Props>(function BoxPrevie
           )}
           <button className={openAmt > 0.99 ? "on" : ""} onClick={() => playTo(1)}>Flat</button>
         </div>
-        <button className={`icon-btn ${spin ? "on" : ""}`} onClick={() => setSpin((s) => !s)} title="Auto-rotate 360°" aria-pressed={spin}>
-          ⟳
-        </button>
+        <div className="preview-tools">
+          <button className="icon-btn" onClick={() => zoomBy(1 / 1.25)} title="Zoom in" aria-label="Zoom in 3D view">+</button>
+          <button className="icon-btn" onClick={() => zoomBy(1.25)} title="Zoom out" aria-label="Zoom out 3D view">−</button>
+          <button className={`icon-btn ${spin ? "on" : ""}`} onClick={() => setSpin((s) => !s)} title="Auto-rotate 360°" aria-pressed={spin}>
+            ⟳
+          </button>
+        </div>
       </div>
       <div className="preview-views" role="group" aria-label="Camera views">
         {views.map(([v, label]) => (

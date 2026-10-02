@@ -22,6 +22,9 @@ const base = {
   clip: z.boolean(),
   finishes: z.array(z.string().max(64)).max(10),
   locked: z.boolean().optional(),
+  hidden: z.boolean().optional(),
+  flipX: z.boolean().optional(),
+  flipY: z.boolean().optional(),
 };
 
 const qrContent = z.discriminatedUnion("kind", [
@@ -76,13 +79,24 @@ export const elementSchema = z.discriminatedUnion("type", [
   z.object({
     ...base,
     type: z.literal("shape"),
-    shape: z.enum(["rect", "ellipse", "line"]),
+    shape: z.enum(["rect", "ellipse", "line", "triangle", "star"]),
     fill: paintSchema.nullable(),
     stroke: paintSchema.nullable(),
     strokeWidth: num.min(0).max(100),
     radius: num.min(0).max(1000),
   }),
+  z.object({
+    ...base,
+    type: z.literal("icon"),
+    iconId: z.string().min(1).max(64),
+    color: paintSchema,
+  }),
 ]);
+
+const colorsSchema = z.object({
+  base: paintSchema.nullable(),
+  panels: z.record(z.string().max(64), paintSchema.nullable()),
+});
 
 export const designSchema = z.object({
   version: z.literal(1),
@@ -93,12 +107,10 @@ export const designSchema = z.object({
   standardSizeId: z.string().max(64).optional(),
   unit: z.enum(["mm", "cm", "in"]),
   materialId: z.string().max(64),
-  colors: z.object({
-    base: paintSchema.nullable(),
-    panels: z.record(z.string().max(64), paintSchema.nullable()),
-  }),
+  colors: colorsSchema,
   laminationId: z.string().max(64).nullable(),
   elements: z.array(elementSchema).max(300),
+  inside: z.object({ colors: colorsSchema, elements: z.array(elementSchema).max(300) }).optional(),
 });
 
 export const quoteSchema = z.object({
@@ -128,6 +140,7 @@ export const quoteSchema = z.object({
     mockups: z.array(assetId).min(1).max(6),
     /** One black-on-white mask per area finish (spot UV, foil, emboss…). */
     masks: z.array(z.object({ finishId: z.string().max(64), assetId })).max(12).optional().default([]),
+    printInside: assetId.optional(),
   }),
 });
 
@@ -159,6 +172,11 @@ export const catalogSchema = z.object({
     quantityPresets: z.array(z.number().int().positive()).max(20),
     minQuantity: z.number().int().min(1),
     quoteIntro: z.string().max(1000),
+    contactEmail: z.string().max(200).optional().default(""),
+    contactPhone: z.string().max(60).optional().default(""),
+    contactWhatsapp: z.string().max(60).optional().default(""),
+    contactUrl: z.union([z.literal(""), z.string().max(500).regex(/^https:\/\//, "Contact page must start with https://")]).optional().default(""),
+    contactHours: z.string().max(200).optional().default(""),
   }),
   styles: z.array(styleConfig).max(500),
   materials: z

@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { describePaint } from "../../shared/design";
+import { describePaint, hasInsidePrint } from "../../shared/design";
 import { toUnit } from "../../shared/catalog";
 import { api, DEMO } from "../lib/api";
 import { preflight } from "../lib/preflight";
@@ -139,7 +139,15 @@ export function QuoteDialog({ preview, sources, saveProject, onClose, onFocusEle
           deadline: form.deadline,
           notes: form.notes,
         },
-        files: { printFile, proof, dieline, designJson, mockups, masks },
+        files: {
+          printFile,
+          proof,
+          dieline,
+          designJson,
+          mockups,
+          masks,
+          ...(files.printInside ? { printInside: await up(files.printInside, `${slug}-print-interior-${files.dpi}dpi.png`) } : {}),
+        },
       });
       setResult(res);
       setStep("done");
@@ -152,7 +160,7 @@ export function QuoteDialog({ preview, sources, saveProject, onClose, onFocusEle
   const tpl = s.style.template;
   const unit = s.design.unit;
   const lam = cat.finishes.find((f) => f.id === s.design.laminationId)?.name ?? "None";
-  const areaFinishes = [...new Set(s.design.elements.flatMap((e) => e.finishes))].map((id) => cat.finishes.find((f) => f.id === id)?.name ?? id);
+  const areaFinishes = [...new Set([...s.design.elements, ...(s.design.inside?.elements ?? [])].flatMap((e) => e.finishes))].map((id) => cat.finishes.find((f) => f.id === id)?.name ?? id);
 
   return (
     <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="quote-title">
@@ -273,6 +281,8 @@ export function QuoteDialog({ preview, sources, saveProject, onClose, onFocusEle
                 <dd>{cat.materials.find((m) => m.id === form.materialId)?.name}</dd>
                 <dt>Printing</dt>
                 <dd>{cat.printOptions.find((p) => p.id === form.printOptionId)?.name}</dd>
+                <dt>Printed sides</dt>
+                <dd>{hasInsidePrint(s.design) ? "Exterior + interior" : "Exterior only"}</dd>
                 <dt>Background</dt>
                 <dd>{describePaint(s.design.colors.base)}</dd>
                 <dt>Lamination</dt>
