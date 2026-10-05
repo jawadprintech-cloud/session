@@ -24,7 +24,7 @@ export function ContactDialog({ settings: s, onClose, toast }: Props) {
 
   return (
     <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="contact-title" onClick={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="modal">
+      <div className="modal contact-modal">
         <header className="modal-head">
           <h2 id="contact-title">Contact us</h2>
           <button className="icon-btn" onClick={onClose} aria-label="Close">✕</button>
