@@ -7,6 +7,7 @@ import type { BoxPreviewHandle } from "../preview/BoxPreview";
 import { buildPrintFiles, dataUrlToBlob } from "../render/exports";
 import type { RenderSources } from "../render/renderDesign";
 import { useStudio } from "../panels/context";
+import { BrandLogo } from "../components/BrandLogo";
 
 interface Props {
   preview: React.RefObject<BoxPreviewHandle | null>;
@@ -30,6 +31,8 @@ interface Form {
   materialId: string;
   printOptionId: string;
   deadline: string;
+  dimensions: string;
+  finishing: string;
   notes: string;
 }
 
@@ -56,6 +59,8 @@ export function QuoteDialog({ preview, sources, saveProject, onClose, onFocusEle
       materialId: s.design.materialId,
       printOptionId: cat.printOptions[0]?.id ?? "",
       deadline: "",
+      dimensions: "",
+      finishing: cat.finishes.find((f) => f.id === s.design.laminationId)?.name ?? "Varnish",
       notes: "",
       ...saved,
     };
@@ -137,6 +142,8 @@ export function QuoteDialog({ preview, sources, saveProject, onClose, onFocusEle
           materialId: form.materialId,
           printOptionId: form.printOptionId,
           deadline: form.deadline,
+          dimensions: form.dimensions.trim(),
+          finishing: form.finishing,
           notes: form.notes,
         },
         files: {
@@ -159,6 +166,8 @@ export function QuoteDialog({ preview, sources, saveProject, onClose, onFocusEle
 
   const tpl = s.style.template;
   const unit = s.design.unit;
+  const boxSize = `${tpl.dimensions.map((d) => toUnit(s.design.dims[d.key], unit)).join(" × ")} ${unit}`;
+  const finishingOptions = [...new Set(["Varnish", ...cat.finishes.map((f) => f.name), "No finishing", form.finishing])];
   const lam = cat.finishes.find((f) => f.id === s.design.laminationId)?.name ?? "None";
   const areaFinishes = [...new Set([...s.design.elements, ...(s.design.inside?.elements ?? [])].flatMap((e) => e.finishes))].map((id) => cat.finishes.find((f) => f.id === id)?.name ?? id);
 
@@ -190,29 +199,13 @@ export function QuoteDialog({ preview, sources, saveProject, onClose, onFocusEle
                   <input className="input" type="email" value={form.email} onChange={set("email")} autoComplete="email" />
                   {errors.email && <small>{errors.email}</small>}
                 </label>
-                <div className="row">
-                  <label className="field">
-                    <span>Phone</span>
-                    <input className="input" value={form.phone} onChange={set("phone")} autoComplete="tel" />
-                  </label>
-                  <label className="field">
-                    <span>Company</span>
-                    <input className="input" value={form.company} onChange={set("company")} autoComplete="organization" />
-                  </label>
-                </div>
-                <div className="row">
-                  <label className="field">
-                    <span>Country</span>
-                    <input className="input" value={form.country} onChange={set("country")} autoComplete="country-name" />
-                  </label>
-                  <label className="field">
-                    <span>Needed by</span>
-                    <input className="input" type="date" value={form.deadline} onChange={set("deadline")} />
-                  </label>
-                </div>
                 <label className="field">
-                  <span>Shipping address (for delivery estimate)</span>
-                  <input className="input" value={form.address} onChange={set("address")} autoComplete="street-address" />
+                  <span>Phone</span>
+                  <input className="input" type="tel" value={form.phone} onChange={set("phone")} autoComplete="tel" />
+                </label>
+                <label className="field">
+                  <span>Notes for our team</span>
+                  <textarea className="input" rows={4} value={form.notes} onChange={set("notes")} placeholder="Inserts, special requests, reference to a previous order…" />
                 </label>
               </fieldset>
               <fieldset>
@@ -228,8 +221,8 @@ export function QuoteDialog({ preview, sources, saveProject, onClose, onFocusEle
                   {errors.quantity ? <small>{errors.quantity}</small> : <small>Minimum {cat.settings.minQuantity} units</small>}
                 </label>
                 <label className="field">
-                  <span>Also quote these quantities (optional)</span>
-                  <input className="input" placeholder="e.g. 1000, 2500" value={form.extraQuantities} onChange={set("extraQuantities")} />
+                  <span>Dimensions</span>
+                  <input className="input" placeholder={`e.g. ${boxSize}`} value={form.dimensions} onChange={set("dimensions")} />
                 </label>
                 <label className="field">
                   <span>Material preference</span>
@@ -252,14 +245,23 @@ export function QuoteDialog({ preview, sources, saveProject, onClose, onFocusEle
                   </select>
                 </label>
                 <label className="field">
-                  <span>Notes for our team</span>
-                  <textarea className="input" rows={4} value={form.notes} onChange={set("notes")} placeholder="Inserts, special requests, reference to a previous order…" />
+                  <span>Finishing</span>
+                  <select className="input" value={form.finishing} onChange={set("finishing")}>
+                    {finishingOptions.map((f) => (
+                      <option key={f} value={f}>
+                        {f}
+                      </option>
+                    ))}
+                  </select>
                 </label>
               </fieldset>
             </div>
-            <footer className="modal-foot">
-              <button className="btn" onClick={onClose}>Keep designing</button>
-              <button className="btn primary" onClick={toReview}>Review request →</button>
+            <footer className="modal-foot quote-foot">
+              <div className="quote-actions">
+                <button className="btn" onClick={onClose}>Keep designing</button>
+                <button className="btn quote-cta" onClick={toReview}>Review request</button>
+              </div>
+              <BrandLogo className="quote-logo" />
             </footer>
           </div>
         )}
@@ -277,6 +279,12 @@ export function QuoteDialog({ preview, sources, saveProject, onClose, onFocusEle
                 </dd>
                 <dt>Quantity</dt>
                 <dd>{[parseInt(form.quantity, 10), ...extra].map((n) => n.toLocaleString()).join(" / ")}</dd>
+                {form.dimensions.trim() && (
+                  <>
+                    <dt>Requested dimensions</dt>
+                    <dd>{form.dimensions.trim()}</dd>
+                  </>
+                )}
                 <dt>Material</dt>
                 <dd>{cat.materials.find((m) => m.id === form.materialId)?.name}</dd>
                 <dt>Printing</dt>
@@ -285,6 +293,8 @@ export function QuoteDialog({ preview, sources, saveProject, onClose, onFocusEle
                 <dd>{hasInsidePrint(s.design) ? "Exterior + interior" : "Exterior only"}</dd>
                 <dt>Background</dt>
                 <dd>{describePaint(s.design.colors.base)}</dd>
+                <dt>Finishing</dt>
+                <dd>{form.finishing}</dd>
                 <dt>Lamination</dt>
                 <dd>{lam}</dd>
                 <dt>Special finishes</dt>

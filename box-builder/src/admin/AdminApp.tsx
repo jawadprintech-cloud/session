@@ -265,7 +265,9 @@ function QuoteDetail({ id, onError }: { id: string; onError: (e: unknown) => voi
             <dt>Background</dt><dd>{describePaint(q.design.colors.base)}</dd>
             <dt>Lamination</dt><dd>{q.summary.lamination}</dd>
             <dt>Special finishes</dt><dd>{q.summary.finishes.join(", ") || "None"}</dd>
-            <dt>Needed by</dt><dd>{q.requirements.deadline || "—"}</dd>
+            {q.requirements.dimensions && (<><dt>Requested dimensions</dt><dd>{q.requirements.dimensions}</dd></>)}
+            {q.requirements.finishing && (<><dt>Finishing</dt><dd>{q.requirements.finishing}</dd></>)}
+            {q.requirements.deadline && (<><dt>Needed by</dt><dd>{q.requirements.deadline}</dd></>)}
           </dl>
           {q.requirements.notes && (
             <>

@@ -312,6 +312,11 @@ a.btn.primary { color: var(--brand-ink); }
 .modal-body { padding: 16px 20px 20px; }
 .modal-body.center { text-align: center; }
 .modal-foot { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; align-items: center; }
+.quote-foot { justify-content: space-between; flex-wrap: wrap; gap: 12px; }
+.quote-actions { display: flex; gap: 10px; }
+.btn.quote-cta { background: #d98e3a; border-color: #d98e3a; color: #fff; padding-left: 22px; padding-right: 22px; }
+.btn.quote-cta:hover { background: #c47a28; border-color: #c47a28; }
+.quote-logo { height: 56px; width: auto; }
 .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
 fieldset { border: 0; padding: 0; margin: 0; min-width: 0; }
 legend { font-weight: 700; margin-bottom: 4px; }

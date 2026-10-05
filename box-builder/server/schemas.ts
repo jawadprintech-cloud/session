@@ -130,6 +130,8 @@ export const quoteSchema = z.object({
     materialId: z.string().max(64),
     printOptionId: z.string().max(64),
     deadline: z.string().max(40).optional().default(""),
+    dimensions: z.string().trim().max(120).optional().default(""),
+    finishing: z.string().trim().max(80).optional().default(""),
     notes: z.string().max(5000).optional().default(""),
   }),
   files: z.object({

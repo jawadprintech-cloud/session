@@ -128,6 +128,8 @@ export interface AdminQuote {
     materialId: string;
     printOptionId: string;
     deadline: string;
+    dimensions?: string;
+    finishing?: string;
     notes: string;
   };
   design: Design;

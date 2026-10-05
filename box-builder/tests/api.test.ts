@@ -149,7 +149,7 @@ describe("API", () => {
     const quote = {
       design,
       customer: { name: "Jane", email: "jane@example.com" },
-      requirements: { quantity: 500, materialId: "kraft", printOptionId: "cmyk-outside" },
+      requirements: { quantity: 500, materialId: "kraft", printOptionId: "cmyk-outside", dimensions: "300 x 200 x 80 mm", finishing: "Varnish" },
       files: { printFile: ids[0], proof: ids[1], dieline: ids[2], designJson: ids[3], mockups: [ids[4]] },
     };
     const bad = await fetch(`${base}/api/quotes`, json("POST", { ...quote, customer: { name: "", email: "nope" } }));
@@ -171,6 +171,8 @@ describe("API", () => {
     expect(detail.summary.styleName).toBe("Mailer Box");
     expect(detail.summary.finishes).toEqual(["Gold Foil Stamping"]);
     expect(detail.summary.lamination).toBe("Matte Lamination");
+    expect(detail.requirements.dimensions).toBe("300 x 200 x 80 mm");
+    expect(detail.requirements.finishing).toBe("Varnish");
     const patched = await (await fetch(`${base}/api/admin/quotes/${id}`, json("PATCH", { status: "quoted", internalNotes: "£1.20/unit" }, auth))).json();
     expect(patched.status).toBe("quoted");
     expect((await fetch(`${base}/api/admin/quotes/${id}`, json("PATCH", { status: "bogus" }, auth))).status).toBe(400);
