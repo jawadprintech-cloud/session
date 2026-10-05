@@ -9,6 +9,7 @@ import { validateTemplate } from "../shared/validate";
 import type { BoxTemplate } from "../shared/template-types";
 import type { Design } from "../shared/design";
 import { Storage, newId, type AssetMeta } from "./storage";
+import { sendQuoteEmail, type MailConfig } from "./mailer";
 import { catalogSchema, designSchema, quoteSchema, QUOTE_STATUSES, type QuoteInput } from "./schemas";
 
 export interface AppOptions {
@@ -17,6 +18,8 @@ export interface AppOptions {
   staticDir?: string;
   adminPassword?: string;
   webhookUrl?: string;
+  /** SMTP settings; when set, new quotes are emailed to the catalog's quote inbox. */
+  mail?: MailConfig;
   publicUrl?: string;
   log?: (msg: string) => void;
 }
@@ -227,6 +230,16 @@ export async function createApp(opts: AppOptions) {
     };
   }
 
+  async function emailTeam(q: QuoteRecord, to: string) {
+    if (!opts.mail || !to) return;
+    try {
+      await sendQuoteEmail(opts.mail, to, q, opts.publicUrl);
+      log(`Quote ${q.reference} emailed to ${to}`);
+    } catch (e) {
+      log(`Quote email to ${to} failed: ${(e as Error).message}`);
+    }
+  }
+
   async function notify(q: QuoteRecord) {
     if (!opts.webhookUrl) return;
     try {
@@ -386,6 +399,7 @@ export async function createApp(opts: AppOptions) {
     await store.writeJson(`quotes/${record.id}.json`, record);
     log(`Quote ${record.reference} submitted by ${record.customer.email}`);
     void notify(record);
+    void emailTeam(record, cat.settings.quoteEmail);
     send(res, 201, { id: record.id, reference: record.reference });
   });
 

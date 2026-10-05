@@ -179,6 +179,7 @@ export const catalogSchema = z.object({
     contactWhatsapp: z.string().max(60).optional().default(""),
     contactUrl: z.union([z.literal(""), z.string().max(500).regex(/^https:\/\//, "Contact page must start with https://")]).optional().default(""),
     contactHours: z.string().max(200).optional().default(""),
+    quoteEmail: z.union([z.literal(""), z.string().trim().email().max(200)]).optional().default(""),
   }),
   styles: z.array(styleConfig).max(500),
   materials: z

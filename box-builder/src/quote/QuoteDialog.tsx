@@ -355,10 +355,10 @@ export function QuoteDialog({ preview, sources, saveProject, onClose, onFocusEle
             </p>
             {DEMO ? (
               <p>
-                This is the demo, so nothing was sent. In the live version your team receives the request with the print-ready artwork, dieline, finish masks, 3D mockups and original uploads, and replies to {form.email} with a quotation.
+                This is the demo, so nothing was sent. In the live version your team receives the request with the print-ready artwork, dieline, finish masks, 3D mockups and original uploads, and replies to {cat.settings.quoteEmail || form.email} with a quotation.
               </p>
             ) : (
-              <p>We've received your design and will email {form.email} with your custom quotation. Your design stays saved — you can keep editing it any time from this link.</p>
+              <p>We've received your design{cat.settings.quoteEmail ? <> at <strong>{cat.settings.quoteEmail}</strong></> : null} and will email {form.email} with your custom quotation. Your design stays saved — you can keep editing it any time from this link.</p>
             )}
             <footer className="modal-foot">
               <button className="btn primary" onClick={onClose}>Back to my design</button>

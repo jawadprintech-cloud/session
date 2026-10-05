@@ -68,6 +68,8 @@ ADMIN_PASSWORD='choose-a-strong-one' PORT=8080 npm start   # Windows PowerShell:
 | `ADMIN_PASSWORD` | Required in production to enable `/admin` |
 | `DATA_DIR` | Where projects, quotes, uploads and admin settings are stored (default `./data`) |
 | `PORT`, `HOST` | Listen address (default `0.0.0.0:8080` in production) |
+| `SMTP_URL` | Optional: e.g. `smtps://user:password@smtp.example.com:465`. When set, every new quote is emailed (summary + links to all production files, reply goes to the customer) to the inbox in Admin → Settings → *Quote requests inbox* (default `quotes@customboxmakers.com`) |
+| `MAIL_FROM` | Optional sender, e.g. `Custom Box Makers <quotes@customboxmakers.com>` (defaults to the SMTP user) |
 | `QUOTE_WEBHOOK_URL` | Optional: POSTed JSON on every new quote (e.g. Slack/Zapier/CRM) |
 | `PUBLIC_URL` | Optional: used to build admin links in webhook payloads |
 

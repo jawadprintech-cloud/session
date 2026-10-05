@@ -803,6 +803,11 @@ function SettingsEditor({ cat, onChange }: { cat: Catalog; onChange: (c: Catalog
             <input className="input" value={s.contactHours} onChange={(e) => set({ contactHours: e.target.value })} />
             <small>Shown by the Contact Us button in the builder. Empty fields are hidden.</small>
           </label>
+          <label className="field">
+            <span>Quote requests inbox</span>
+            <input className="input" type="email" value={s.quoteEmail} onChange={(e) => set({ quoteEmail: e.target.value })} />
+            <small>New quote requests are emailed here (needs SMTP_URL on the server) and the address is shown to customers.</small>
+          </label>
           <label className="field full">
             <span>Quote form introduction</span>
             <textarea className="input" rows={3} value={s.quoteIntro} onChange={(e) => set({ quoteIntro: e.target.value })} />

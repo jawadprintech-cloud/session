@@ -82,6 +82,8 @@ export interface CatalogSettings {
   contactWhatsapp: string;
   contactUrl: string;
   contactHours: string;
+  /** Inbox that receives every new quote request (emailed when SMTP is configured). */
+  quoteEmail: string;
 }
 
 export interface Catalog {
@@ -133,6 +135,7 @@ export const DEFAULT_CATALOG: Catalog = {
     contactWhatsapp: "",
     contactUrl: "",
     contactHours: "Mon–Fri, 10am–8pm",
+    quoteEmail: "quotes@customboxmakers.com",
   },
   styles: BUILTIN_TEMPLATES.map((t, i) => ({ id: t.id, enabled: true, order: i })),
   materials: [

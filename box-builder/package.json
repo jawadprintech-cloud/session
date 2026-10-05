@@ -16,7 +16,8 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "jspdf": "^3.0.4",
+    "jspdf": "^4.2.1",
+    "nodemailer": "^10.0.14",
     "qrcode-generator": "^1.4.4",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
@@ -27,6 +28,7 @@
   },
   "devDependencies": {
     "@types/node": "^22.15.0",
+    "@types/nodemailer": "^8.0.2",
     "@types/react": "^19.1.0",
     "@types/react-dom": "^19.1.0",
     "@types/three": "^0.176.0",

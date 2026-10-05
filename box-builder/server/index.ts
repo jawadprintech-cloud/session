@@ -23,6 +23,7 @@ const handler = await createApp({
   staticDir: production && existsSync(staticDir) ? staticDir : undefined,
   adminPassword,
   webhookUrl: process.env.QUOTE_WEBHOOK_URL,
+  mail: process.env.SMTP_URL ? { smtpUrl: process.env.SMTP_URL, from: process.env.MAIL_FROM } : undefined,
   publicUrl: process.env.PUBLIC_URL,
   log: (m) => console.log(`[box-builder] ${m}`),
 });

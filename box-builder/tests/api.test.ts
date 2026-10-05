@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createServer, type Server } from "node:http";
+import { createServer as createTcpServer, type Server as TcpServer } from "node:net";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -15,8 +16,55 @@ const PNG_1PX = Buffer.from(
   "hex",
 );
 
+// A tiny SMTP sink that records every message it receives.
+const mails: { from: string; to: string[]; data: string }[] = [];
+let smtp: TcpServer;
+async function startSmtp(): Promise<number> {
+  smtp = createTcpServer((sock) => {
+    let cur = { from: "", to: [] as string[], data: "" };
+    let inData = false;
+    let buf = "";
+    sock.write("220 test ESMTP\r\n");
+    sock.on("data", (chunk) => {
+      buf += chunk.toString("utf8");
+      for (;;) {
+        if (inData) {
+          const end = buf.indexOf("\r\n.\r\n");
+          if (end < 0) return;
+          cur.data = buf.slice(0, end);
+          buf = buf.slice(end + 5);
+          inData = false;
+          mails.push(cur);
+          cur = { from: "", to: [], data: "" };
+          sock.write("250 OK\r\n");
+          continue;
+        }
+        const nl = buf.indexOf("\r\n");
+        if (nl < 0) return;
+        const cmd = buf.slice(0, nl);
+        buf = buf.slice(nl + 2);
+        const verb = cmd.slice(0, 4).toUpperCase();
+        if (verb === "EHLO" || verb === "HELO") sock.write("250 test\r\n");
+        else if (verb === "MAIL") (cur.from = cmd), sock.write("250 OK\r\n");
+        else if (verb === "RCPT") cur.to.push(cmd), sock.write("250 OK\r\n");
+        else if (verb === "DATA") (inData = true), sock.write("354 go\r\n");
+        else if (verb === "QUIT") sock.end("221 bye\r\n");
+        else sock.write("250 OK\r\n");
+      }
+    });
+  });
+  await new Promise<void>((r) => smtp.listen(0, "127.0.0.1", r));
+  return (smtp.address() as { port: number }).port;
+}
+
 beforeAll(async () => {
-  const handler = await createApp({ dataDir, adminPassword: "secret" });
+  const smtpPort = await startSmtp();
+  const handler = await createApp({
+    dataDir,
+    adminPassword: "secret",
+    mail: { smtpUrl: `smtp://127.0.0.1:${smtpPort}?ignoreTLS=true`, from: "Box Builder <noreply@example.com>" },
+    publicUrl: "https://boxes.example.com",
+  });
   server = createServer(handler);
   await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
   const addr = server.address() as { port: number };
@@ -25,6 +73,7 @@ beforeAll(async () => {
 
 afterAll(() => {
   server.close();
+  smtp.close();
   rmSync(dataDir, { recursive: true, force: true });
 });
 
@@ -173,6 +222,17 @@ describe("API", () => {
     expect(detail.summary.lamination).toBe("Matte Lamination");
     expect(detail.requirements.dimensions).toBe("300 x 200 x 80 mm");
     expect(detail.requirements.finishing).toBe("Varnish");
+
+    // The quote team is emailed at the default inbox, with replies going to the customer.
+    for (let i = 0; i < 50 && !mails.length; i++) await new Promise((r) => setTimeout(r, 50));
+    expect(mails).toHaveLength(1);
+    expect(mails[0].to.join()).toContain("quotes@customboxmakers.com");
+    const raw = mails[0].data.replace(/=\r\n/g, "");
+    expect(raw).toMatch(/^Reply-To: .*jane@example\.com/m);
+    expect(raw).toContain(reference);
+    expect(raw).toContain("300 x 200 x 80 mm");
+    expect(raw).toContain(`https://boxes.example.com/api/assets/${ids[0]}`);
+    expect(raw).toContain(`https://boxes.example.com/admin#quote/${id}`);
     const patched = await (await fetch(`${base}/api/admin/quotes/${id}`, json("PATCH", { status: "quoted", internalNotes: "£1.20/unit" }, auth))).json();
     expect(patched.status).toBe("quoted");
     expect((await fetch(`${base}/api/admin/quotes/${id}`, json("PATCH", { status: "bogus" }, auth))).status).toBe(400);
