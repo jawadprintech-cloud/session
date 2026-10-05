@@ -288,6 +288,10 @@ function Studio({ catalog, initial, initialProjectId, readOnlyRef }: { catalog: 
   };
 
   const downloadPdf = async () => {
+    if (import.meta.env.VITE_SHARE) {
+      toast("Save to PDF works when the builder runs on your own website.", "info");
+      return;
+    }
     setPdfBusy(true);
     try {
       const shots = previewRef.current?.capture(["hero", "heroBack"], 1200, 900) ?? [];
