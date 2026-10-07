@@ -19,7 +19,6 @@ function fitInto(e: DesignElement, panel: DielinePanel): DesignElement {
   if (e.type === "text") return { ...e, fontSize: Math.max(4, Math.round(e.fontSize * k * 10) / 10) };
   return { ...e, w: e.w * k, h: e.h * k };
 }
-import { STYLE_IMAGES } from "../lib/styleImages";
 import { ContactDialog } from "../components/ContactDialog";
 
 function StyleThumb({ style }: { style: ResolvedStyle }) {
@@ -107,8 +106,8 @@ export function StylePanel() {
             onClick={() => choose(st)}
             aria-pressed={st.template.id === s.design.styleId}
           >
-            {st.config.image || STYLE_IMAGES[st.template.id] ? (
-              <img className="thumb photo" src={st.config.image || STYLE_IMAGES[st.template.id]} alt={`${st.name} example`} loading="lazy" />
+            {st.config.image ? (
+              <img className="thumb photo" src={st.config.image} alt={`${st.name} example`} loading="lazy" />
             ) : (
               <StyleThumb style={st} />
             )}
