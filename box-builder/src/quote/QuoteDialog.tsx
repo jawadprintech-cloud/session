@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { describePaint, hasInsidePrint } from "../../shared/design";
-import { toUnit } from "../../shared/catalog";
+import { toUnit, type Unit } from "../../shared/catalog";
 import { api, DEMO } from "../lib/api";
 import { preflight } from "../lib/preflight";
 import type { BoxPreviewHandle } from "../preview/BoxPreview";
@@ -19,6 +19,9 @@ interface Props {
 
 const DRAFT_KEY = "bb-quote-contact";
 
+/** Finishing names as offered in the quote form ("Matte Lamination" → "Matte"). */
+const finishLabel = (name: string) => name.replace(/\s*lamination\s*/i, " ").trim();
+
 interface Form {
   name: string;
   email: string;
@@ -31,7 +34,10 @@ interface Form {
   materialId: string;
   printOptionId: string;
   deadline: string;
-  dimensions: string;
+  dimL: string;
+  dimW: string;
+  dimH: string;
+  dimUnit: Unit;
   finishing: string;
   notes: string;
 }
@@ -59,8 +65,11 @@ export function QuoteDialog({ preview, sources, saveProject, onClose, onFocusEle
       materialId: s.design.materialId,
       printOptionId: cat.printOptions[0]?.id ?? "",
       deadline: "",
-      dimensions: "",
-      finishing: cat.finishes.find((f) => f.id === s.design.laminationId)?.name ?? "Varnish",
+      dimL: "",
+      dimW: "",
+      dimH: "",
+      dimUnit: s.design.unit,
+      finishing: finishLabel(cat.finishes.find((f) => f.id === s.design.laminationId)?.name ?? cat.finishes[0]?.name ?? "No finishing"),
       notes: "",
       ...saved,
     };
@@ -87,6 +96,9 @@ export function QuoteDialog({ preview, sources, saveProject, onClose, onFocusEle
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim())) e.email = "Please enter a valid email address.";
     const q = parseInt(form.quantity, 10);
     if (!Number.isFinite(q) || q < cat.settings.minQuantity) e.quantity = `Minimum quantity is ${cat.settings.minQuantity}.`;
+    const dims = [form.dimL, form.dimW, form.dimH].map((v) => v.trim());
+    if (dims.some(Boolean) && !dims.every((v) => /^\d+([.,]\d+)?$/.test(v) && parseFloat(v.replace(",", ".")) > 0))
+      e.dimensions = "Enter length, width and height as numbers.";
     setErrors(e);
     return !Object.keys(e).length;
   };
@@ -142,7 +154,7 @@ export function QuoteDialog({ preview, sources, saveProject, onClose, onFocusEle
           materialId: form.materialId,
           printOptionId: form.printOptionId,
           deadline: form.deadline,
-          dimensions: form.dimensions.trim(),
+          dimensions: requestedDims,
           finishing: form.finishing,
           notes: form.notes,
         },
@@ -167,7 +179,8 @@ export function QuoteDialog({ preview, sources, saveProject, onClose, onFocusEle
   const tpl = s.style.template;
   const unit = s.design.unit;
   const boxSize = `${tpl.dimensions.map((d) => toUnit(s.design.dims[d.key], unit)).join(" × ")} ${unit}`;
-  const finishingOptions = [...new Set(["Varnish", ...cat.finishes.map((f) => f.name), "No finishing", form.finishing])];
+  const finishingOptions = [...new Set([...cat.finishes.map((f) => finishLabel(f.name)), "No finishing", form.finishing])];
+  const requestedDims = form.dimL.trim() && form.dimW.trim() && form.dimH.trim() ? `${form.dimL.trim()} × ${form.dimW.trim()} × ${form.dimH.trim()} ${form.dimUnit}` : "";
   const lam = cat.finishes.find((f) => f.id === s.design.laminationId)?.name ?? "None";
   const areaFinishes = [...new Set([...s.design.elements, ...(s.design.inside?.elements ?? [])].flatMap((e) => e.finishes))].map((id) => cat.finishes.find((f) => f.id === id)?.name ?? id);
 
@@ -220,10 +233,20 @@ export function QuoteDialog({ preview, sources, saveProject, onClose, onFocusEle
                   </datalist>
                   {errors.quantity ? <small>{errors.quantity}</small> : <small>Minimum {cat.settings.minQuantity} units</small>}
                 </label>
-                <label className="field">
-                  <span>Dimensions</span>
-                  <input className="input" placeholder={`e.g. ${boxSize}`} value={form.dimensions} onChange={set("dimensions")} />
-                </label>
+                <div className={`field ${errors.dimensions ? "invalid" : ""}`} role="group" aria-labelledby="quote-dims">
+                  <span id="quote-dims">Dimensions</span>
+                  <div className="dims-row">
+                    <input className="input" inputMode="decimal" placeholder="Length" aria-label="Length" title={`Your design: ${boxSize}`} value={form.dimL} onChange={set("dimL")} />
+                    <input className="input" inputMode="decimal" placeholder="Width" aria-label="Width" value={form.dimW} onChange={set("dimW")} />
+                    <input className="input" inputMode="decimal" placeholder="Height" aria-label="Height" value={form.dimH} onChange={set("dimH")} />
+                    <select className="input" aria-label="Unit" value={form.dimUnit} onChange={set("dimUnit")}>
+                      <option value="mm">mm</option>
+                      <option value="cm">cm</option>
+                      <option value="in">in</option>
+                    </select>
+                  </div>
+                  {errors.dimensions && <small>{errors.dimensions}</small>}
+                </div>
                 <label className="field">
                   <span>Material preference</span>
                   <select className="input" value={form.materialId} onChange={set("materialId")}>
@@ -279,10 +302,10 @@ export function QuoteDialog({ preview, sources, saveProject, onClose, onFocusEle
                 </dd>
                 <dt>Quantity</dt>
                 <dd>{[parseInt(form.quantity, 10), ...extra].map((n) => n.toLocaleString()).join(" / ")}</dd>
-                {form.dimensions.trim() && (
+                {requestedDims && (
                   <>
                     <dt>Requested dimensions</dt>
-                    <dd>{form.dimensions.trim()}</dd>
+                    <dd>{requestedDims}</dd>
                   </>
                 )}
                 <dt>Material</dt>

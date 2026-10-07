@@ -312,6 +312,7 @@ a.btn.primary { color: var(--brand-ink); }
 .modal-body { padding: 16px 20px 20px; }
 .modal-body.center { text-align: center; }
 .modal-foot { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; align-items: center; }
+.dims-row { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)) 76px; gap: 8px; }
 .quote-foot { justify-content: space-between; flex-wrap: wrap; gap: 12px; }
 .quote-actions { display: flex; gap: 10px; }
 .btn.quote-cta { background: #d98e3a; border-color: #d98e3a; color: #fff; padding-left: 22px; padding-right: 22px; }
