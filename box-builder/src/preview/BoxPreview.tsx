@@ -2,6 +2,7 @@ import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "re
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
+import { RectAreaLightUniformsLib } from "three/examples/jsm/lights/RectAreaLightUniformsLib.js";
 import type { ResolvedCatalog } from "../../shared/catalog";
 import { surfaceView, type Design, type Side } from "../../shared/design";
 import { mirrorDieline, type Dieline, type DielinePanel } from "../../shared/dieline";
@@ -42,17 +43,38 @@ const VIEW_DIRS: Record<ViewName, Vec3> = {
 
 const TEX_MAX = 2048;
 
-/** Scale diffuse and specular image-based lighting independently. */
-function iblPatch(diffuse: number, specular: number, coat: number) {
+type IblUniforms = Record<"uIblDiffuse" | "uIblSpecular" | "uIblCoat" | "uTone", { value: number }>;
+
+const iblUniforms = (diffuse: number, specular: number, coat: number): IblUniforms => ({
+  uIblDiffuse: { value: diffuse },
+  uIblSpecular: { value: specular },
+  uIblCoat: { value: coat },
+  uTone: { value: 0 },
+});
+
+/**
+ * Scale diffuse and specular image-based lighting independently, and tone the printed colour
+ * (uTone > 0 deepens it like a gloss film, < 0 softens it like a matte film). The uniforms are
+ * shared objects, so changing their values later re-styles the material without a recompile.
+ */
+function iblPatch(u: IblUniforms) {
   return (shader: { uniforms: Record<string, { value: unknown }>; fragmentShader: string }) => {
-    shader.uniforms.uIblDiffuse = { value: diffuse };
-    shader.uniforms.uIblSpecular = { value: specular };
-    shader.uniforms.uIblCoat = { value: coat };
+    Object.assign(shader.uniforms, u);
     shader.fragmentShader =
-      "uniform float uIblDiffuse;\nuniform float uIblSpecular;\nuniform float uIblCoat;\n" +
-      shader.fragmentShader.replace(
-        "#include <lights_fragment_maps>",
-        `#include <lights_fragment_maps>
+      "uniform float uIblDiffuse;\nuniform float uIblSpecular;\nuniform float uIblCoat;\nuniform float uTone;\n" +
+      shader.fragmentShader
+        .replace(
+          "#include <map_fragment>",
+          `#include <map_fragment>
+        if (uTone > 0.0) diffuseColor.rgb = pow(diffuseColor.rgb, vec3(1.0 + uTone));
+        else if (uTone < 0.0) {
+          float luma = dot(diffuseColor.rgb, vec3(0.2126, 0.7152, 0.0722));
+          diffuseColor.rgb = mix(diffuseColor.rgb, vec3(luma), -uTone) * (1.0 + 0.25 * uTone) - 0.25 * uTone;
+        }`,
+        )
+        .replace(
+          "#include <lights_fragment_maps>",
+          `#include <lights_fragment_maps>
         iblIrradiance *= uIblDiffuse;
         // Metallic areas (foil) reflect much more strongly than print, as real foil does.
         #ifdef USE_METALNESSMAP
@@ -63,8 +85,28 @@ function iblPatch(diffuse: number, specular: number, coat: number) {
         #ifdef USE_CLEARCOAT
           clearcoatRadiance *= uIblCoat;
         #endif`,
-      );
+        );
   };
+}
+
+/** How each lamination shows in 3D (roughness itself comes from the finish texture). */
+const LAM_LOOK: Record<string, { spec: number; coat: number; tone: number; softbox: number }> = {
+  none: { spec: 1.6, coat: 0.85, tone: 0, softbox: 0 },
+  matte: { spec: 0.9, coat: 0, tone: -0.08, softbox: 0 },
+  "soft-touch": { spec: 0.7, coat: 0, tone: -0.12, softbox: 0 },
+  gloss: { spec: 0.9, coat: 0.3, tone: 0.12, softbox: 4 },
+};
+
+/** Keep the gloss softbox high on the far side of the box, mirrored from the camera over the lid. */
+function placeSoftbox(e: { camera: THREE.PerspectiveCamera; softbox: THREE.RectAreaLight; radius: number }) {
+  if (!e.softbox.intensity) return;
+  const c = e.camera.position;
+  const flat = Math.hypot(c.x, c.z) || 1;
+  const d = c.length();
+  e.softbox.position.set((-c.x / flat) * d * 0.7, Math.max(c.y, d * 0.35) * 0.9, (-c.z / flat) * d * 0.7);
+  e.softbox.width = e.radius * 1.6;
+  e.softbox.height = e.radius * 0.22;
+  e.softbox.lookAt(0, 0, 0);
 }
 
 /** Camera distance that fits a sphere of `radius` in both the vertical and horizontal field of view. */
@@ -169,6 +211,8 @@ export const BoxPreview = forwardRef<BoxPreviewHandle, Props>(function BoxPrevie
     group: THREE.Group;
     shadow: THREE.Mesh;
     outerMat: THREE.MeshPhysicalMaterial;
+    outerU: IblUniforms;
+    softbox: THREE.RectAreaLight;
     innerMat: THREE.MeshStandardMaterial;
     colorCanvas: HTMLCanvasElement;
     finishCanvas: HTMLCanvasElement;
@@ -227,6 +271,11 @@ export const BoxPreview = forwardRef<BoxPreviewHandle, Props>(function BoxPrevie
     key.position.set(300, 500, 400);
     scene.add(key);
     scene.add(new THREE.AmbientLight(0xffffff, 0.12));
+    // Studio softbox for gloss lamination: kept opposite the camera and as high, so the top of the
+    // box mirrors it as a moving highlight. Off (intensity 0) for uncoated and matte finishes.
+    RectAreaLightUniformsLib.init();
+    const softbox = new THREE.RectAreaLight(0xffffff, 0, 1, 1);
+    scene.add(softbox);
     const camera = new THREE.PerspectiveCamera(32, 1, 1, 20000);
     camera.position.set(400, 300, 600);
     const controls = new OrbitControls(camera, renderer.domElement);
@@ -252,9 +301,10 @@ export const BoxPreview = forwardRef<BoxPreviewHandle, Props>(function BoxPrevie
       clearcoatRoughness: 0.05,
       ...offset,
     });
-    outerMat.onBeforeCompile = iblPatch(0.5, 1.6, 0.85);
+    const outerU = iblUniforms(0.5, 1.6, 0.85);
+    outerMat.onBeforeCompile = iblPatch(outerU);
     const innerMat = new THREE.MeshStandardMaterial({ roughness: 0.95, metalness: 0, side: THREE.BackSide, ...offset });
-    innerMat.onBeforeCompile = iblPatch(0.5, 0.5, 0.5);
+    innerMat.onBeforeCompile = iblPatch(iblUniforms(0.5, 0.5, 0.5));
     edgeMat.current = new THREE.LineBasicMaterial({ color: 0x1b2230, transparent: true, opacity: 0.28 });
     eng.current = {
       renderer,
@@ -264,6 +314,8 @@ export const BoxPreview = forwardRef<BoxPreviewHandle, Props>(function BoxPrevie
       group,
       shadow,
       outerMat,
+      outerU,
+      softbox,
       innerMat,
       colorCanvas: document.createElement("canvas"),
       finishCanvas: document.createElement("canvas"),
@@ -366,6 +418,7 @@ export const BoxPreview = forwardRef<BoxPreviewHandle, Props>(function BoxPrevie
       }
       if (!e.ready) return;
       if (controls.update() || e.dirty || controls.autoRotate) {
+        placeSoftbox(e);
         renderer.render(scene, camera);
         e.dirty = false;
       }
@@ -498,8 +551,15 @@ export const BoxPreview = forwardRef<BoxPreviewHandle, Props>(function BoxPrevie
       e.coatTex!.needsUpdate = true;
       e.insideTex!.needsUpdate = true;
     }
-    // Lamination look.
+    // Lamination look. Uncoated board is the reference; matte film is flatter and slightly
+    // softer, gloss film deepens colour, adds a clear coat and mirrors the studio softbox.
     const lam = finishById(p.catalog, p.design.laminationId)?.effect;
+    const look = LAM_LOOK[lam ?? "none"] ?? LAM_LOOK.none;
+    e.outerU.uIblSpecular.value = look.spec;
+    e.outerU.uIblCoat.value = look.coat;
+    e.outerU.uTone.value = look.tone;
+    e.outerMat.clearcoatRoughness = 0.06;
+    e.softbox.intensity = look.softbox;
     // Soft-touch: a faint velvet sheen at grazing angles, without greying the print.
     e.outerMat.sheen = lam === "soft-touch" ? 0.35 : 0;
     e.outerMat.sheenRoughness = 0.85;
@@ -667,6 +727,7 @@ export const BoxPreview = forwardRef<BoxPreviewHandle, Props>(function BoxPrevie
       for (const v of views) {
         e.camera.position.copy(new THREE.Vector3(...VIEW_DIRS[v]).normalize().multiplyScalar(fitDistance(e.radius, e.camera) * 0.98));
         e.camera.lookAt(0, 0, 0);
+        placeSoftbox(e);
         e.renderer.render(e.scene, e.camera);
         out.push(e.renderer.domElement.toDataURL("image/png"));
       }

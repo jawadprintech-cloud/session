@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { describePaint, hasInsidePrint } from "../../shared/design";
-import { toUnit, type Unit } from "../../shared/catalog";
+import { fromUnit, toUnit, type Unit } from "../../shared/catalog";
 import { api, DEMO } from "../lib/api";
 import { preflight } from "../lib/preflight";
 import type { BoxPreviewHandle } from "../preview/BoxPreview";
@@ -65,9 +65,10 @@ export function QuoteDialog({ preview, sources, saveProject, onClose, onFocusEle
       materialId: s.design.materialId,
       printOptionId: cat.printOptions[0]?.id ?? "",
       deadline: "",
-      dimL: "",
-      dimW: "",
-      dimH: "",
+      // Pre-filled with the box being designed; the customer can still change it.
+      dimL: String(toUnit(s.design.dims.L ?? 0, s.design.unit) || ""),
+      dimW: String(toUnit(s.design.dims.W ?? 0, s.design.unit) || ""),
+      dimH: String(toUnit(s.design.dims.H ?? 0, s.design.unit) || ""),
       dimUnit: s.design.unit,
       finishing: finishLabel(cat.finishes.find((f) => f.id === s.design.laminationId)?.name ?? cat.finishes[0]?.name ?? "No finishing"),
       notes: "",
@@ -83,6 +84,16 @@ export function QuoteDialog({ preview, sources, saveProject, onClose, onFocusEle
   const checks = useMemo(() => preflight(s.design, s.dieline, cat), [s.design, s.dieline, cat]);
   const set = (k: keyof Form) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
     setForm((f) => ({ ...f, [k]: e.target.value }));
+
+  // Switching units converts the numbers already entered (150 mm → 15 cm) rather than relabelling them.
+  const changeDimUnit = (next: Unit) =>
+    setForm((f) => {
+      const conv = (v: string) => {
+        const n = parseFloat(v.replace(",", "."));
+        return Number.isFinite(n) && n > 0 ? String(toUnit(fromUnit(n, f.dimUnit), next)) : v;
+      };
+      return { ...f, dimUnit: next, dimL: conv(f.dimL), dimW: conv(f.dimW), dimH: conv(f.dimH) };
+    });
 
   const extra = form.extraQuantities
     .split(/[,;\s]+/)
@@ -239,7 +250,7 @@ export function QuoteDialog({ preview, sources, saveProject, onClose, onFocusEle
                     <input className="input" inputMode="decimal" placeholder="Length" aria-label="Length" title={`Your design: ${boxSize}`} value={form.dimL} onChange={set("dimL")} />
                     <input className="input" inputMode="decimal" placeholder="Width" aria-label="Width" value={form.dimW} onChange={set("dimW")} />
                     <input className="input" inputMode="decimal" placeholder="Height" aria-label="Height" value={form.dimH} onChange={set("dimH")} />
-                    <select className="input" aria-label="Unit" value={form.dimUnit} onChange={set("dimUnit")}>
+                    <select className="input" aria-label="Unit" value={form.dimUnit} onChange={(e) => changeDimUnit(e.target.value as Unit)}>
                       <option value="mm">mm</option>
                       <option value="cm">cm</option>
                       <option value="in">in</option>

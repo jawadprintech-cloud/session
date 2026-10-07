@@ -5,8 +5,11 @@ import { validateDims } from "../../shared/validate";
 import { defaultPanel } from "../state/factory";
 import { useStudio } from "./context";
 import { elementSize } from "../render/renderDesign";
-import type { DesignElement } from "../../shared/design";
+import type { DesignElement, Paint } from "../../shared/design";
 import type { DielinePanel } from "../../shared/dieline";
+
+/** An untouched white background (older designs started this way); it would hide the board colour. */
+const isPlainWhite = (p: Paint | null) => !!p && /^#f{3}(f{3})?$/i.test(p.hex) && !p.pantone && !p.cmyk;
 
 /** Scale an item down (never up) so it fits inside `panel` in its current rotation. */
 function fitInto(e: DesignElement, panel: DielinePanel): DesignElement {
@@ -242,10 +245,11 @@ export function SizePanel() {
       </div>
 
       <h3>Material</h3>
+      <p className="hint">The board shows inside and outside, wherever no background colour is printed.</p>
       <div className="material-list" role="radiogroup">
         {s.catalog.materials.map((m) => (
           <label key={m.id} className={`material ${s.design.materialId === m.id ? "on" : ""}`}>
-            <input type="radio" name="material" checked={s.design.materialId === m.id} onChange={() => s.update((d) => ({ ...d, materialId: m.id }))} disabled={s.readOnly} />
+            <input type="radio" name="material" checked={s.design.materialId === m.id} onChange={() => s.update((d) => ({ ...d, materialId: m.id, colors: { ...d.colors, base: isPlainWhite(d.colors.base) ? null : d.colors.base } }))} disabled={s.readOnly} />
             <span className="chip big" style={{ background: m.boardColor }} />
             <span>
               <strong>{m.name}</strong>

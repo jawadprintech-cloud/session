@@ -19,7 +19,8 @@ export function newDesign(cat: ResolvedCatalog, styleId?: string): Design {
     standardSizeId: std?.id,
     unit: cat.settings.defaultUnit,
     materialId: material?.id ?? "",
-    colors: { base: { hex: "#ffffff" }, panels: {} },
+    // No background ink by default: the chosen board shows on both sides of the box.
+    colors: { base: null, panels: {} },
     laminationId: null,
     elements: [],
   };

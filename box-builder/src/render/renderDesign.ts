@@ -96,7 +96,8 @@ export function finishById(cat: ResolvedCatalog, id: string | null | undefined):
   return id ? cat.finishes.find((f) => f.id === id) : undefined;
 }
 
-const LAM_ROUGHNESS: Record<string, number> = { matte: 0.62, gloss: 0.14, "soft-touch": 0.92 };
+// Uncoated board is ~0.82; matte film is flatter still, gloss film is smooth.
+const LAM_ROUGHNESS: Record<string, number> = { matte: 0.93, gloss: 0.12, "soft-touch": 0.97 };
 
 function finishChannels(el: DesignElement, cat: ResolvedCatalog, baseRough: number): [number, number, number] | null {
   let r = 128, g = Math.round(baseRough * 255), b = 0;
